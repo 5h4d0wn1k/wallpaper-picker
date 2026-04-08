@@ -941,7 +941,7 @@ cmd_status() {
     echo ""
     echo -e "${C_CYAN}Statistics:${C_RESET}"
     echo "  Total wallpapers: $(count_videos)"
-    echo "  Watch dirs:       ${#WATCH_DIRS[@]:-0}"
+    echo "  Watch dirs:       ${#WATCH_DIRS[@]}"
     echo "  History entries:  $(wc -l < "${HISTORY_FILE}" 2>/dev/null || echo 0)"
     echo "  Favorites:        $(wc -l < "${FAVORITES_FILE}" 2>/dev/null || echo 0)"
     
