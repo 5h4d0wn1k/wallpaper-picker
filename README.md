@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/shadowarch/wallpaper-picker/main/.github/banner.png" alt="wallpaper-picker" width="600"/>
+  <a href="https://github.com/5h4d0wn1k/wallpaper-picker/releases/latest">
+    <img src="https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/.github/banner.png" alt="wallpaper-picker" width="600"/>
+  </a>
 </p>
 
 <p align="center">
@@ -141,6 +143,32 @@ wallpaper-picker doctor            # Diagnose issues
 wallpaper-picker monitors         # List available monitors
 wallpaper-picker enable-startup    # Enable on login
 wallpaper-picker disable-startup  # Disable on login
+```
+
+---
+
+## 🖥️ Application Menu
+
+The app integrates with your desktop environment and appears in application menus.
+
+### Launcher Actions
+Right-click the app icon in your menu to see quick actions:
+- **Open GUI** - Launch the graphical interface
+- **Open TUI** - Launch the terminal picker
+- **Random Wallpaper** - Set a random wallpaper
+- **Start Slideshow** - Begin slideshow mode
+
+### Manual Desktop Entry Installation
+```bash
+# For current user only
+cp wallpaper-picker.desktop ~/.local/share/applications/
+cp wallpaper-picker.svg ~/.local/share/icons/
+update-desktop-database ~/.local/share/applications/
+```
+
+### Autostart (Optional)
+```bash
+cp wallpaper-picker.desktop ~/.config/autostart/
 ```
 
 ---

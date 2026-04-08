@@ -1,0 +1,38 @@
+[Desktop Entry]
+Name=Wallpaper Picker
+GenericName=Video Wallpaper Manager
+Comment=A sleek, feature-rich video wallpaper manager for Arch Linux/Hyprland
+Exec=wallpaper-picker gui %u
+Icon=wallpaper-picker
+Terminal=false
+Type=Application
+Categories=Utility;DesktopSettings;GTK;
+Keywords=wallpaper;video;hyprland;wayland;desktop;background;
+MimeType=video/mp4;video/webm;video/x-matroska;
+StartupNotify=true
+StartupWMClass=wallpaper-picker-gui
+Actions=gui;tui;random;slideshow;
+
+[Desktop Action gui]
+Name=Open GUI
+Exec=wallpaper-picker gui
+Icon=wallpaper-picker
+Terminal=false
+
+[Desktop Action tui]
+Name=Open TUI
+Exec=wallpaper-picker pick
+Icon=wallpaper-picker
+Terminal=true
+
+[Desktop Action random]
+Name=Random Wallpaper
+Exec=wallpaper-picker random
+Icon=wallpaper-picker
+Terminal=true
+
+[Desktop Action slideshow]
+Name=Start Slideshow
+Exec=wallpaper-picker slideshow
+Icon=wallpaper-picker
+Terminal=true

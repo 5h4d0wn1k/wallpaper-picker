@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Wallpaper Picker - GUI Module
-A GTK-based graphical interface for selecting video wallpapers
+A GTK4-based graphical interface for selecting video wallpapers
 """
 
 import sys
@@ -13,8 +13,7 @@ from pathlib import Path
 try:
     import gi
     gi.require_version('Gtk', '4.0')
-    gi.require_version('Adw', '1')
-    from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
+    from gi.repository import Gtk, Gdk, GLib
     HAS_GTK = True
 except (ImportError, ValueError):
     HAS_GTK = False
@@ -157,75 +156,78 @@ def set_wallpaper(video_path, monitor, audio="no"):
         json.dump({
             "current": str(video_path),
             "monitor": monitor,
-            "timestamp": str(Path.home() / ".local" / "share" / "wallpaper-picker" / "history")
         }, f)
-    
-    # Add to history
-    history_dir = Path.home() / ".local" / "share" / "wallpaper-picker"
-    history_dir.mkdir(parents=True, exist_ok=True)
-    with open(history_dir / "history", "a") as f:
-        from datetime import datetime
-        f.write(f"{datetime.now().isoformat()}|{video_path}\n")
 
-class WallpaperPickerGUI:
+class WallpaperPickerGUI(Gtk.Application):
     """Main GUI Application"""
     
     def __init__(self):
-        if not HAS_GTK:
-            print("Error: GTK4 is required for GUI mode")
-            print("Install with: sudo pacman -S python-gobject gtk4")
-            sys.exit(1)
-        
+        super().__init__(application_id='com.wallpaperpicker.gui')
         self.config = get_config()
         self.monitor = get_primary_monitor(self.config)
         self.videos = get_all_videos(self.config)
         self.current_video = None
-        self.preview_process = None
+        self.filtered_videos = self.videos.copy()
         
+        self.connect('activate', self.on_activate)
+    
+    def on_activate(self, app):
+        """Handle app activation"""
         self.setup_window()
-        self.setup_ui()
-        self.load_videos()
+        self.window.present()
     
     def setup_window(self):
         """Create main window"""
-        self.window = Gtk.ApplicationWindow()
-        self.window.set_title("🎨 Wallpaper Picker")
-        self.window.set_default_size(900, 600)
-        self.window.set_position(Gtk.WindowPosition.CENTER)
+        self.window = Gtk.ApplicationWindow(
+            application=self,
+            title="Wallpaper Picker",
+            default_width=900,
+            default_height=600
+        )
         
         # Set dark theme
         settings = Gtk.Settings.get_default()
-        settings.set_property("gtk-application-prefer-dark-theme", True)
+        if settings:
+            settings.props.gtk_application_prefer_dark_theme = True
+        
+        # Main box
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.window.set_child(main_box)
         
         # Header bar
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
-        self.window.set_titlebar(header)
+        
+        # Title
+        title = Gtk.Label()
+        title.set_markup("<b>🎨 Wallpaper Picker</b>")
+        header.set_title_widget(title)
         
         # Refresh button
-        refresh_btn = Gtk.Button(label="🔄")
+        refresh_btn = Gtk.Button()
+        refresh_btn.set_icon_name("view-refresh-symbolic")
+        refresh_btn.set_tooltip_text("Refresh")
         refresh_btn.connect("clicked", lambda _: self.load_videos())
         header.pack_start(refresh_btn)
         
         # Monitor selector
         monitors = get_monitors()
-        self.monitor_combo = Gtk.ComboBoxText()
-        for m in monitors:
-            self.monitor_combo.append(m, m)
-        self.monitor_combo.set_active_id(self.monitor)
-        self.monitor_combo.connect("changed", self.on_monitor_changed)
-        header.pack_end(self.monitor_combo)
+        monitor_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         
-        # Monitor label
         monitor_label = Gtk.Label(label="Monitor:")
-        header.pack_end(monitor_label)
+        monitor_box.append(monitor_label)
         
-        self.window.connect("destroy", Gtk.main_quit)
-    
-    def setup_ui(self):
-        """Setup main UI components"""
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.window.set_child(main_box)
+        self.monitor_combo = Gtk.DropDown()
+        store = Gtk.StringList()
+        for m in monitors:
+            store.append(m)
+        self.monitor_combo.set_model(store)
+        self.monitor_combo.connect("notify::selected-item", self.on_monitor_changed)
+        monitor_box.append(self.monitor_combo)
+        
+        header.pack_end(monitor_box)
+        
+        self.window.set_titlebar(header)
         
         # Search bar
         search_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -238,16 +240,20 @@ class WallpaperPickerGUI:
         self.search_entry = Gtk.SearchEntry()
         self.search_entry.set_placeholder_text("Search wallpapers...")
         self.search_entry.connect("search-changed", self.on_search_changed)
+        self.search_entry.set_hexpand(True)
         search_box.append(self.search_entry)
         
-        # Filter buttons
-        self.filter_btn = Gtk.ToggleButton(label="⭐ Favorites Only")
-        self.filter_btn.connect("toggled", self.on_filter_toggled)
-        search_box.append(self.filter_btn)
+        # Favorites toggle
+        self.fav_toggle = Gtk.ToggleButton()
+        self.fav_toggle.set_icon_name("starred-symbolic")
+        self.fav_toggle.set_tooltip_text("Show favorites only")
+        self.fav_toggle.connect("toggled", self.on_fav_toggled)
+        search_box.append(self.fav_toggle)
         
         # Grid view
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
         main_box.append(scrolled)
         
         self.flow_box = Gtk.FlowBox()
@@ -268,22 +274,23 @@ class WallpaperPickerGUI:
     
     def load_videos(self):
         """Load videos into the grid"""
-        # Clear existing
         while child := self.flow_box.get_first_child():
             self.flow_box.remove(child)
         
-        videos = self.get_filtered_videos()
+        self.filtered_videos = self.get_filtered_videos()
         
-        for video in videos:
+        for video in self.filtered_videos:
             card = self.create_video_card(video)
             self.flow_box.append(card)
         
-        self.status_bar.set_text(f"Showing {len(videos)} of {len(self.videos)} wallpapers")
+        total = len(self.videos)
+        shown = len(self.filtered_videos)
+        self.status_bar.set_text(f"Showing {shown} of {total} wallpapers")
     
     def get_filtered_videos(self):
         """Get videos based on search and filter"""
         search_text = self.search_entry.get_text().lower()
-        favorites_only = self.filter_btn.get_active()
+        favorites_only = self.fav_toggle.get_active()
         
         favorites = set()
         if FAVORITES_FILE.exists():
@@ -307,90 +314,84 @@ class WallpaperPickerGUI:
     
     def create_video_card(self, video_path):
         """Create a video thumbnail card"""
-        card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        card.set_margin_start(6)
-        card.set_margin_end(6)
-        card.set_margin_top(6)
-        card.set_margin_bottom(6)
-        card.add_css_class("card")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        box.set_margin_start(6)
+        box.set_margin_end(6)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_valign(Gtk.Align.START)
         
         # Thumbnail
-        thumbnail = Gtk.Picture()
-        thumbnail.set_size_request(280, 158)
-        thumbnail.set_can_shrink(True)
+        thumb = Gtk.Picture()
+        thumb.set_size_request(280, 158)
+        thumb.set_can_shrink(True)
         
         thumb_path = get_video_thumbnail(video_path)
         if thumb_path and Path(thumb_path).exists():
-            thumbnail.set_filename(thumb_path)
+            thumb.set_filename(thumb_path)
         else:
-            # Placeholder
-            box = Gtk.Box()
-            box.set_size_request(280, 158)
-            box.add_css_class("placeholder")
-            thumbnail.set_from_icon_name("video-x-generic")
+            thumb.set_icon_name("video-x-generic-symbolic")
         
-        card.append(thumbnail)
+        box.append(thumb)
         
         # Label
         label = Gtk.Label(label=video_path.stem)
         label.set_max_width_chars(25)
         label.set_ellipsize(3)
         label.set_halign(Gtk.Align.CENTER)
-        card.append(label)
+        box.append(label)
         
         # Info
         duration, resolution = get_video_info(video_path)
         info = Gtk.Label(label=f"{int(duration)}s | {resolution}")
         info.add_css_class("dim-label")
         info.set_halign(Gtk.Align.CENTER)
-        card.append(info)
+        box.append(info)
         
         # Favorite indicator
         if FAVORITES_FILE.exists():
             with open(FAVORITES_FILE) as f:
                 if str(video_path) in f.read():
-                    star = Gtk.Label(label="⭐")
+                    star = Gtk.Image()
+                    star.set_from_icon_name("starred-symbolic")
                     star.set_halign(Gtk.Align.END)
-                    card.append(star)
+                    box.append(star)
         
-        return card
+        return box
     
     def on_search_changed(self, entry):
         """Handle search"""
         self.load_videos()
     
-    def on_filter_toggled(self, button):
+    def on_fav_toggled(self, button):
         """Handle favorites filter"""
         self.load_videos()
     
-    def on_monitor_changed(self, combo):
+    def on_monitor_changed(self, dropdown, param):
         """Handle monitor selection"""
-        self.monitor = combo.get_active_id() or self.monitor
+        model = dropdown.get_model()
+        index = dropdown.get_selected()
+        if model and index != Gtk.INVALID_LIST_POSITION:
+            self.monitor = model.get_item(index)
     
     def on_video_selected(self, flow_box, child):
         """Handle video selection"""
-        video_path = self.videos[child.get_index()]
+        video_path = self.filtered_videos[child.get_index()]
         audio = self.config.get("ENABLE_AUDIO", "no")
         set_wallpaper(video_path, self.monitor, audio)
+        
+        # Close window after selection
         self.window.close()
-    
-    def run(self):
-        """Run the application"""
-        self.window.present()
-        Gtk.main()
 
 def main():
     """Main entry point"""
-    if len(sys.argv) > 1 and sys.argv[1] == "--tui":
-        sys.exit(0)  # Handled by shell script
-    
     if not HAS_GTK:
         print("GTK4 is required for GUI mode")
         print("Install: sudo pacman -S python-gobject gtk4")
         sys.exit(1)
     
     app = WallpaperPickerGUI()
-    app.run()
+    return app.run(None)
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="128" height="128" rx="24" fill="url(#gradient)"/>
+  
+  <!-- Monitor frame -->
+  <rect x="20" y="24" width="88" height="56" rx="4" fill="#1a1a2e" stroke="#51a4ff" stroke-width="2"/>
+  
+  <!-- Screen glow -->
+  <rect x="24" y="28" width="80" height="48" rx="2" fill="url(#screen)"/>
+  
+  <!-- Play button on screen -->
+  <circle cx="64" cy="52" r="12" fill="#51a4ff" fill-opacity="0.3"/>
+  <path d="M61 47L69 52L61 57V47Z" fill="#51a4ff"/>
+  
+  <!-- Stand -->
+  <rect x="56" y="80" width="16" height="8" fill="#51a4ff"/>
+  <rect x="48" y="88" width="32" height="4" rx="2" fill="#51a4ff"/>
+  
+  <!-- Decorative rain drops -->
+  <circle cx="32" cy="36" r="2" fill="#51a4ff" fill-opacity="0.5"/>
+  <circle cx="88" cy="40" r="1.5" fill="#51a4ff" fill-opacity="0.5"/>
+  <circle cx="76" cy="34" r="1" fill="#51a4ff" fill-opacity="0.5"/>
+  
+  <!-- Gradient definitions -->
+  <defs>
+    <linearGradient id="gradient" x1="0" y1="0" x2="128" y2="128">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="24" y1="28" x2="104" y2="76">
+      <stop offset="0%" stop-color="#0f3460"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
+    </linearGradient>
+  </defs>
+</svg>
