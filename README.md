@@ -1,25 +1,24 @@
+# 🎨 Wallpaper Picker
+
 <p align="center">
   <a href="https://github.com/5h4d0wn1k/wallpaper-picker/releases/latest">
-    <img src="https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/.github/banner.png" alt="wallpaper-picker" width="600"/>
+    <img src="https://img.shields.io/github/v/release/5h4d0wn1k/wallpaper-picker?style=flat-square" alt="Version">
+  </a>
+  <a href="https://github.com/5h4d0wn1k/wallpaper-picker/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/5h4d0wn1k/wallpaper-picker?style=flat-square" alt="License">
+  </a>
+  <a href="https://github.com/5h4d0wn1k/wallpaper-picker/actions/workflows/tests.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/5h4d0wn1k/wallpaper-picker/tests.yml?style=flat-square" alt="Tests">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/shadowarch/wallpaper-picker/releases/latest">
-    <img src="https://img.shields.io/github/v/release/shadowarch/wallpaper-picker?style=flat-square" alt="Version">
-  </a>
-  <a href="https://github.com/shadowarch/wallpaper-picker/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/shadowarch/wallpaper-picker?style=flat-square" alt="License">
-  </a>
-  <a href="https://github.com/shadowarch/wallpaper-picker/actions/workflows/tests.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/shadowarch/wallpaper-picker/tests.yml?style=flat-square" alt="Tests">
-  </a>
-  <img src="https://img.shields.io/badge/Arch%20Linux-ready-brightgreen?style=flat-square" alt="Arch">
+  <img src="https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/icons/wallpaper-picker.svg" width="128" alt="Icon">
 </p>
 
 ---
 
-> **A sleek, feature-rich video wallpaper manager for Arch Linux and Hyprland.**
+> A **sleek, feature-rich** video wallpaper manager designed specifically for **Arch Linux** and **Hyprland**.
 
 ## ✨ Features
 
@@ -36,12 +35,19 @@
 | ⚙️ **Configurable** | Fully customizable via config file |
 | 🔧 **Doctor Mode** | Diagnose and fix common issues automatically |
 | 🚀 **Auto-Start** | Systemd integration for startup slideshow |
+| 📱 **Menu Integration** | Appears in application menus with quick actions |
 
 ---
 
-## 📦 Installation
+## 🚀 Quick Installation
 
-### Option 1: AUR (Recommended)
+### One-Line Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/install.sh | bash
+```
+
+### AUR (yay/paru)
 
 ```bash
 # Using yay
@@ -51,24 +57,16 @@ yay -S wallpaper-picker
 paru -S wallpaper-picker
 ```
 
-### Option 2: Manual Installation
+### Manual Installation
 
 ```bash
-# Download the script
-curl -fsSL https://raw.githubusercontent.com/shadowarch/wallpaper-picker/main/wallpaper-picker -o ~/.local/bin/wallpaper-picker
-chmod +x ~/.local/bin/wallpaper-picker
+# Download the scripts
+curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/src/wallpaper-picker -o ~/.local/bin/wallpaper-picker
+curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/src/wallpaper-picker-gui -o ~/.local/bin/wallpaper-picker-gui
+chmod +x ~/.local/bin/wallpaper-picker ~/.local/bin/wallpaper-picker-gui
 
-# For GUI support (optional)
-curl -fsSL https://raw.githubusercontent.com/shadowarch/wallpaper-picker/main/wallpaper-picker-gui -o ~/.local/bin/wallpaper-picker-gui
-chmod +x ~/.local/bin/wallpaper-picker-gui
-```
-
-### Option 3: Build from Source
-
-```bash
-git clone https://github.com/shadowarch/wallpaper-picker.git
-cd wallpaper-picker
-./install.sh
+# Install desktop entry for menu
+curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/desktop/wallpaper-picker.desktop -o ~/.local/share/applications/wallpaper-picker.desktop
 ```
 
 ---
@@ -77,105 +75,90 @@ cd wallpaper-picker
 
 ### Required Dependencies
 
-| Package | Source | Description |
-|---------|--------|-------------|
+| Package | AUR/Repo | Description |
+|---------|-----------|-------------|
 | `mpvpaper` | [AUR](https://aur.archlinux.org/packages/mpvpaper) | Video wallpaper for wlroots |
-| `fzf` | [Extra](https://archlinux.org/packages/extra/x86_64/fzf/) | Fuzzy finder (TUI) |
+| `fzf` | [Extra](https://archlinux.org/packages/extra/x86_64/fzf/) | Fuzzy finder |
 | `mpv` | [Extra](https://archlinux.org/packages/extra/x86_64/mpv/) | Media player |
+| `jq` | [Extra](https://archlinux.org/packages/extra/x86_64/jq/) | JSON processing |
 
 ### Optional Dependencies
 
-| Package | Source | Description |
-|---------|--------|-------------|
-| `python-gobject` + `gtk4` | [Extra](https://archlinux.org/packages/extra/x86_64/gtk4/) | GUI support |
+| Package | AUR/Repo | Description |
+|---------|-----------|-------------|
+| `gtk4` | [Extra](https://archlinux.org/packages/extra/x86_64/gtk4/) | GUI support |
+| `python-gobject` | [Extra](https://archlinux.org/packages/extra/x86_64/python-gobject/) | GUI support |
 | `ffmpeg` | [Extra](https://archlinux.org/packages/extra/x86_64/ffmpeg/) | Thumbnails & metadata |
 | `libnotify` | [Extra](https://archlinux.org/packages/extra/x86_64/libnotify/) | Notifications |
 
-### Quick Install All Dependencies
+### Install All Dependencies
 
 ```bash
-sudo pacman -S fzf mpv jq ffmpeg libnotify
+# For AUR packages (mpvpaper)
 yay -S mpvpaper
+
+# For repo packages
+sudo pacman -S fzf mpv jq ffmpeg libnotify gtk4 python-gobject
 ```
 
 ---
 
-## 🚀 Usage
+## 📖 Usage
 
-### TUI Commands
+### Interactive Commands
 
-```bash
-wallpaper-picker pick              # Interactive picker (fzf)
-wallpaper-picker browse            # Browse any video file
-wallpaper-picker random            # Set random wallpaper
-wallpaper-picker slideshow 60     # Start slideshow (60s interval)
-```
-
-### GUI
-
-```bash
-wallpaper-picker gui               # Launch GTK4 GUI
-```
+| Command | Description |
+|---------|-------------|
+| `wallpaper-picker pick` | Interactive TUI picker (fzf) |
+| `wallpaper-picker gui` | GTK4 GUI picker |
+| `wallpaper-picker browse` | Browse any video file |
+| `wallpaper-picker random` | Set random wallpaper |
+| `wallpaper-picker slideshow 60` | Slideshow mode (60s) |
 
 ### Navigation Commands
 
-```bash
-wallpaper-picker current           # Show current wallpaper
-wallpaper-picker next              # Next wallpaper
-wallpaper-picker prev              # Previous wallpaper
-wallpaper-picker list              # List all wallpapers
-```
+| Command | Description |
+|---------|-------------|
+| `wallpaper-picker current` | Show current wallpaper |
+| `wallpaper-picker next` | Next wallpaper |
+| `wallpaper-picker prev` | Previous wallpaper |
+| `wallpaper-picker list` | List all wallpapers |
 
 ### Management Commands
 
-```bash
-wallpaper-picker add-dir ~/Downloads/wallpapers    # Add watch directory
-wallpaper-picker remove-dir ~/Downloads/wallpapers # Remove directory
-wallpaper-picker watch-dirs                         # List watch directories
-wallpaper-picker toggle-fav                         # Toggle favorite
-```
+| Command | Description |
+|---------|-------------|
+| `wallpaper-picker add-dir <path>` | Add watch directory |
+| `wallpaper-picker remove-dir <path>` | Remove directory |
+| `wallpaper-picker watch-dirs` | List watch directories |
+| `wallpaper-picker toggle-fav` | Toggle favorite |
 
 ### System Commands
 
-```bash
-wallpaper-picker status            # Show detailed status
-wallpaper-picker doctor            # Diagnose issues
-wallpaper-picker monitors         # List available monitors
-wallpaper-picker enable-startup    # Enable on login
-wallpaper-picker disable-startup  # Disable on login
-```
+| Command | Description |
+|---------|-------------|
+| `wallpaper-picker status` | Show detailed status |
+| `wallpaper-picker doctor` | Diagnose issues |
+| `wallpaper-picker monitors` | List monitors |
+| `wallpaper-picker enable-startup` | Enable on login |
+| `wallpaper-picker disable-startup` | Disable on login |
 
 ---
 
 ## 🖥️ Application Menu
 
-The app integrates with your desktop environment and appears in application menus.
+The app integrates with your desktop environment.
 
 ### Launcher Actions
-Right-click the app icon in your menu to see quick actions:
-- **Open GUI** - Launch the graphical interface
-- **Open TUI** - Launch the terminal picker
-- **Random Wallpaper** - Set a random wallpaper
+Right-click the app icon to see quick actions:
+- **Open GUI** - Launch graphical interface
+- **Open TUI** - Launch terminal picker
+- **Random Wallpaper** - Set random wallpaper
 - **Start Slideshow** - Begin slideshow mode
 
-### Manual Desktop Entry Installation
-```bash
-# For current user only
-cp wallpaper-picker.desktop ~/.local/share/applications/
-cp wallpaper-picker.svg ~/.local/share/icons/
-update-desktop-database ~/.local/share/applications/
-```
+### Keyboard Shortcuts (Hyprland)
 
-### Autostart (Optional)
-```bash
-cp wallpaper-picker.desktop ~/.config/autostart/
-```
-
----
-
-## ⌨️ Hyprland Integration
-
-Add these keybindings to `~/.config/hypr/hyprland.conf`:
+Add to `~/.config/hypr/hyprland.conf`:
 
 ```bash
 # Interactive TUI picker
@@ -231,24 +214,16 @@ PREVIEW_TIMEOUT=3
 ```
 ~/.config/wallpaper-picker/
 ├── config          # Main configuration
-├── watch-dirs      # Additional directories to watch
-└── thumbnails/     # Cached video thumbnails
+├── watch-dirs     # Additional directories
+└── thumbnails/    # Cached thumbnails
 
 ~/.cache/wallpaper-picker/
-├── state.json      # Current wallpaper state
-└── wallpaper-picker.log  # Application log
+├── state.json     # Current state
+└── wallpaper-picker.log  # Logs
 
 ~/.local/share/wallpaper-picker/
-├── history         # Wallpaper usage history
-└── favorites      # Favorited wallpapers
-```
-
----
-
-## 🧪 Testing
-
-```bash
-./tests/run_tests.sh
+├── history        # Usage history
+└── favorites     # Favorited wallpapers
 ```
 
 ---
@@ -256,8 +231,6 @@ PREVIEW_TIMEOUT=3
 ## 🔍 Troubleshooting
 
 ### Doctor Mode
-
-Run the built-in diagnostic:
 
 ```bash
 wallpaper-picker doctor
@@ -291,29 +264,35 @@ wallpaper-picker pick
 ```
 wallpaper-picker/
 ├── src/
-│   ├── wallpaper-picker          # Main TUI script
-│   └── wallpaper-picker-gui     # GUI script (Python/GTK4)
+│   ├── wallpaper-picker          # Main TUI script (Bash)
+│   └── wallpaper-picker-gui      # GUI script (Python/GTK4)
+├── desktop/
+│   └── wallpaper-picker.desktop  # Desktop entry
+├── icons/
+│   └── wallpaper-picker.svg      # App icon
 ├── tests/
-│   └── run_tests.sh              # Test suite
+│   └── run_tests.sh             # Test suite
 ├── .github/
-│   ├── workflows/               # GitHub Actions
-│   ├── ISSUE_TEMPLATE/          # Issue templates
-│   └── PULL_REQUEST_TEMPLATE.md # PR template
-├── PKGBUILD                      # AUR package
+│   ├── workflows/              # CI/CD
+│   └── ISSUE_TEMPLATE/        # Templates
+├── PKGBUILD                     # AUR package
+├── install.sh                   # Quick installer
 ├── README.md
 ├── LICENSE
 └── CONTRIBUTING.md
 ```
 
-### Contributing
+### Running Tests
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+```bash
+./tests/run_tests.sh
+```
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE)
 
 ---
 
@@ -322,7 +301,6 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 - [mpvpaper](https://github.com/GhostNaN/mpvpaper) - Video wallpaper for wlroots
 - [fzf](https://github.com/junegunn/fzf) - Fuzzy finder
 - [Hyprland](https://hyprland.org/) - Wayland compositor
-- [Arch Linux](https://archlinux.org/) - Linux distribution
 
 ---
 

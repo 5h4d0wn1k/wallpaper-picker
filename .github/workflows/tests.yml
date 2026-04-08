@@ -15,7 +15,7 @@ jobs:
       
       - name: Run ShellCheck
         run: |
-          for file in wallpaper-picker install.sh; do
+          for file in src/wallpaper-picker src/wallpaper-picker-gui install.sh; do
             if command -v shellcheck &>/dev/null; then
               shellcheck "$file" || echo "Install shellcheck: sudo apt install shellcheck"
             else
@@ -31,8 +31,8 @@ jobs:
       
       - name: Syntax Check
         run: |
-          bash -n wallpaper-picker
-          bash -n wallpaper-picker-gui 2>/dev/null || true
+          bash -n src/wallpaper-picker
+          bash -n src/wallpaper-picker-gui 2>/dev/null || true
       
       - name: Install Dependencies (Mock)
         run: |
@@ -46,9 +46,10 @@ jobs:
       - name: Run Basic Tests
         run: |
           export PATH=~/bin:$PATH
-          ./wallpaper-picker --version
-          ./wallpaper-picker --help | head -5
-          ./wallpaper-picker doctor 2>&1 | head -10 || true
+          chmod +x src/wallpaper-picker
+          ./src/wallpaper-picker --version
+          ./src/wallpaper-picker --help | head -5
+          ./src/wallpaper-picker doctor 2>&1 | head -10 || true
 
   python-test:
     name: Python Tests
@@ -63,7 +64,7 @@ jobs:
       
       - name: Syntax Check
         run: |
-          python3 -m py_compile wallpaper-picker-gui || true
+          python3 -m py_compile src/wallpaper-picker-gui || true
       
       - name: Check GTK Import
         run: |
@@ -82,6 +83,7 @@ jobs:
       
       - name: Run Integration Tests
         run: |
-          ./wallpaper-picker list
-          ./wallpaper-picker monitors
-          ./wallpaper-picker status
+          chmod +x src/wallpaper-picker
+          ./src/wallpaper-picker list
+          ./src/wallpaper-picker monitors
+          ./src/wallpaper-picker status

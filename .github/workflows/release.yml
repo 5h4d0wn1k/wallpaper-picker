@@ -20,9 +20,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            wallpaper-picker
-            wallpaper-picker-gui
+            src/wallpaper-picker
+            src/wallpaper-picker-gui
             install.sh
+            PKGBUILD
+            wallpaper-picker.install
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
