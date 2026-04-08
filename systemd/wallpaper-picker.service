@@ -1,0 +1,27 @@
+[Unit]
+Description=Wallpaper Picker Slideshow Service
+Documentation=https://github.com/shadowarch/wallpaper-picker
+After=graphical.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wallpaper-picker slideshow %I
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-1
+
+# Allow video acceleration if available
+Environment=LIBVA_DRIVER_NAME=%E{LIBVA_DRIVER_NAME}
+
+# Memory and CPU limits
+MemoryMax=500M
+CPUQuota=50%
+
+# Logging
+StandardOutput=append:%h/.cache/wallpaper-picker/slideshow.log
+StandardError=append:%h/.cache/wallpaper-picker/slideshow.log
+
+[Install]
+WantedBy=default.target

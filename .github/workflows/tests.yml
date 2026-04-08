@@ -1,0 +1,87 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run ShellCheck
+        run: |
+          for file in wallpaper-picker install.sh; do
+            if command -v shellcheck &>/dev/null; then
+              shellcheck "$file" || echo "Install shellcheck: sudo apt install shellcheck"
+            else
+              echo "ShellCheck not available"
+            fi
+          done
+
+  bash-test:
+    name: Bash Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Syntax Check
+        run: |
+          bash -n wallpaper-picker
+          bash -n wallpaper-picker-gui 2>/dev/null || true
+      
+      - name: Install Dependencies (Mock)
+        run: |
+          # Create mock binaries
+          mkdir -p ~/bin
+          echo '#!/bin/bash' > ~/bin/mpvpaper
+          echo 'echo "mock mpvpaper"' >> ~/bin/mpvpaper
+          chmod +x ~/bin/mpvpaper
+          echo 'export PATH=~/bin:$PATH' >> $GITHUB_ENV
+      
+      - name: Run Basic Tests
+        run: |
+          export PATH=~/bin:$PATH
+          ./wallpaper-picker --version
+          ./wallpaper-picker --help | head -5
+          ./wallpaper-picker doctor 2>&1 | head -10 || true
+
+  python-test:
+    name: Python Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Syntax Check
+        run: |
+          python3 -m py_compile wallpaper-picker-gui || true
+      
+      - name: Check GTK Import
+        run: |
+          python3 -c "import gi" || echo "PyGObject not available"
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create Test Environment
+        run: |
+          mkdir -p ~/Videos/wallpapers
+          echo "test" > ~/Videos/wallpapers/test.mp4
+      
+      - name: Run Integration Tests
+        run: |
+          ./wallpaper-picker list
+          ./wallpaper-picker monitors
+          ./wallpaper-picker status

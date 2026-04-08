@@ -1,0 +1,73 @@
+# bash completion for wallpaper-picker
+# Install: cp wallpaper-picker /usr/share/bash-completion/completions/
+
+_wallpaper_picker() {
+    local cur prev words cword
+    _init_completion || return
+
+    local commands=(
+        'pick'
+        'browse'
+        'random'
+        'slideshow'
+        'stop'
+        'current'
+        'next'
+        'prev'
+        'list'
+        'add-dir'
+        'remove-dir'
+        'watch-dirs'
+        'toggle-fav'
+        'toggle-favorite'
+        'config'
+        'monitors'
+        'clear-cache'
+        'status'
+        'doctor'
+        'enable-startup'
+        'disable-startup'
+        'help'
+    )
+
+    local options=(
+        '-h' '--help'
+        '-v' '--version'
+        '-m:' '--monitor:'
+        '-d:' '--dir:'
+        '-n' '--no-notify'
+    )
+
+    # Complete commands
+    if [[ $cword -eq 1 ]]; then
+        COMPREPLY=($(compgen -W "${commands[*]}" -- "$cur"))
+        return
+    fi
+
+    # Complete options
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "${options[*]}" -- "$cur"))
+        return
+    fi
+
+    # Complete command-specific arguments
+    case "${words[1]}" in
+        add-dir|remove-dir)
+            _filedir -d
+            ;;
+        toggle-fav|toggle-favorite)
+            _filedir '@(mp4|webm|mkv|avi|mov)'
+            ;;
+        -m|--monitor)
+            # Complete with available monitors
+            local monitors
+            monitors=$(hyprctl monitors 2>/dev/null | grep "^Monitor" | awk '{print $2}')
+            COMPREPLY=($(compgen -W "$monitors" -- "$cur"))
+            ;;
+        -d|--dir)
+            _filedir -d
+            ;;
+    esac
+}
+
+complete -F _wallpaper_picker wallpaper-picker

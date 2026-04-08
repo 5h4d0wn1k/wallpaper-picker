@@ -1,0 +1,69 @@
+#compdef wallpaper-picker
+
+_wallpaper_picker() {
+    local -a commands options
+
+    commands=(
+        'pick:Interactive wallpaper picker'
+        'browse:Browse and pick any video'
+        'random:Set random wallpaper'
+        'slideshow:Start slideshow mode'
+        'stop:Stop current wallpaper'
+        'current:Show current wallpaper'
+        'next:Next wallpaper'
+        'prev:Previous wallpaper'
+        'list:List all wallpapers'
+        'add-dir:Add watch directory'
+        'remove-dir:Remove watch directory'
+        'watch-dirs:List watch directories'
+        'toggle-fav:Toggle favorite status'
+        'config:Edit configuration'
+        'monitors:List available monitors'
+        'clear-cache:Clear thumbnail cache'
+        'status:Show detailed status'
+        'doctor:Check dependencies'
+        'enable-startup:Enable on login'
+        'disable-startup:Disable on login'
+        'help:Show help'
+    )
+
+    options=(
+        '-h[Show help]:'
+        '--help[Show help]:'
+        '-v[Show version]:'
+        '--version[Show version]:'
+        '-m:[Target monitor]:monitor:'
+        '--monitor:[Target monitor]:monitor:'
+        '-d:[Wallpaper directory]:directory:_files -/'
+        '--dir:[Wallpaper directory]:directory:_files -/'
+        '-n[Disable notifications]:'
+        '--no-notify[Disable notifications]:'
+    )
+
+    _arguments -s $options && return 0
+
+    local -a monitors
+    monitors=(${(f)"$(hyprctl monitors 2>/dev/null | grep "^Monitor" | awk '{print $2}')"})
+
+    case "$words[1]" in
+        pick|browse|random|slideshow|stop|current|next|prev|list)
+            _describe 'commands' commands
+            ;;
+        add-dir|remove-dir)
+            _arguments -s $options
+            _files -/
+            ;;
+        toggle-fav|toggle-favorite)
+            _arguments -s $options
+            _files -g '*.@(mp4|webm|mkv|avi|mov)'
+            ;;
+        -m|--monitor)
+            _describe 'monitors' monitors
+            ;;
+        *)
+            _describe 'commands' commands
+            ;;
+    esac
+}
+
+_wallpaper_picker "$@"

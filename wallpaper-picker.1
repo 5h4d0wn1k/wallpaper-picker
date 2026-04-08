@@ -1,0 +1,288 @@
+.TH "WALLPAPER-PICKER" "1" "2026-04-09" "1.0.0" "Wallpaper Picker Manual"
+.nh
+.ad l
+
+.SH NAME
+wallpaper\-picker \- A sleek, feature\-rich video wallpaper manager for Arch Linux/Hyprland
+
+.SH SYNOPSIS
+.B wallpaper\-picker
+[\fICOMMAND\fR] [\fIOPTIONS\fR]
+
+.SH DESCRIPTION
+.B wallpaper\-picker
+is a powerful command\-line tool for managing video wallpapers on Hyprland and other wlroots\-based Wayland compositors. It provides an interactive TUI picker, slideshow mode, multi\-monitor support, and deep integration with Arch Linux.
+
+.PP
+Features include:
+.RS
+\(bu Interactive fzf\-based picker with video preview
+\(bu Random, slideshow, and sequential playback modes
+\(bu Multi\-monitor support with auto\-detection
+\(bu Thumbnail caching for faster browsing
+\(bu Favorites and history tracking
+\(bu Systemd user service for auto\-start
+\(bu Shell completions for bash, zsh, and fish
+.RE
+
+.SH COMMANDS
+
+.SS Core Commands
+.TP
+.B pick
+Open the interactive wallpaper picker with fzf. Displays a searchable list of all wallpapers with optional video preview.
+.TP
+.B browse
+Browse and select any video file from your system. Useful for one\-off wallpapers not in your collection.
+.TP
+.B random
+Set a random wallpaper from your collection.
+.TP
+.B slideshow [\fISECONDS\fR]
+Start slideshow mode, cycling through all wallpapers. Default interval is 30 seconds unless specified.
+.TP
+.B stop
+Stop the current wallpaper playback.
+.TP
+.B current
+Display information about the currently active wallpaper.
+.TP
+.B next / prev
+Switch to the next or previous wallpaper in the collection.
+
+.SS Management Commands
+.TP
+.B list
+List all available wallpapers with their status.
+.TP
+.B add\-dir \fIPATH\fR
+Add a directory to watch for wallpapers. Directories are stored in \fI~/.config/wallpaper\-picker/watch\-dirs\fR.
+.TP
+.B remove\-dir \fIPATH\fR
+Remove a directory from the watch list.
+.TP
+.B watch\-dirs
+List all directories being watched for wallpapers.
+.TP
+.B toggle\-fav [\fIFILE\fR]
+Toggle the favorite status of a wallpaper. If no file specified, uses current wallpaper.
+.TP
+.B config
+Open the configuration file in your default editor (\fI$EDITOR\fR).
+
+.SS System Commands
+.TP
+.B monitors
+List all available monitors and show which one is active.
+.TP
+.B clear\-cache
+Clear the thumbnail cache at \fI~/.cache/wallpaper\-picker/thumbnails/\fR.
+.TP
+.B status
+Show detailed system status including configuration, statistics, and running state.
+.TP
+.B doctor
+Run dependency checks and diagnose common issues.
+.TP
+.B enable\-startup
+Enable the systemd user service to start slideshow on login.
+.TP
+.B disable\-startup
+Disable the systemd user service.
+
+.SS Help Commands
+.TP
+.B help
+Display this help message.
+.TP
+.B --version, -v
+Show version information.
+
+.SH OPTIONS
+.TP
+.B \-h, \-\-help
+Display help message and exit.
+.TP
+.B \-v, \-\-version
+Display version information and exit.
+.TP
+.B \-m, \-\-monitor \fINAME\fR
+Specify which monitor to use. Use \fBmonitors\fR command to see available options.
+.TP
+.B \-d, \-\-dir \fIPATH\fR
+Override the default wallpaper directory.
+.TP
+.B \-n, \-\-no\-notify
+Disable desktop notifications.
+
+.SH CONFIGURATION
+Configuration is stored at \fI~/.config/wallpaper\-picker/config\fR and uses shell variable syntax:
+
+.PP
+.nf
+.RS
+# Monitor configuration
+MONITOR=""
+AUTO_DETECT_MONITOR="yes"
+
+# Directory configuration
+DEFAULT_WALLPAPER_DIR="$HOME/Videos/wallpapers"
+
+# Playback configuration
+ENABLE_AUDIO="no"
+LOOP_MODE="inf"
+
+# Slideshow configuration
+SLIDESHOW_INTERVAL=30
+SLIDESHOW_SHUFFLE="no"
+
+# UI configuration
+THUMBNAIL_ENABLED="yes"
+CACHE_THUMBNAILS="yes"
+NOTIFICATIONS_ENABLED="yes"
+
+# Startup configuration
+STARTUP_MODE="manual"
+.RE
+.fi
+
+.SH FILES
+.TP
+.B ~/.config/wallpaper\-picker/config
+Main configuration file.
+.TP
+.B ~/.config/wallpaper\-picker/watch\-dirs
+List of additional directories to watch.
+.TP
+.B ~/.cache/wallpaper\-picker/state.json
+Current wallpaper state.
+.TP
+.B ~/.cache/wallpaper\-picker/thumbnails/
+Cached video thumbnails.
+.TP
+.B ~/.local/share/wallpaper\-picker/history
+Wallpaper usage history.
+.TP
+.B ~/.local/share/wallpaper\-picker/favorites
+List of favorited wallpapers.
+
+.SH EXAMPLES
+
+.SS Interactive Selection
+.PP
+.nf
+.RS
+$ wallpaper\-picker pick
+.RE
+
+.SS Random Wallpaper
+.PP
+.nf
+.R
+$ wallpaper\-picker random
+.RE
+
+.SS Slideshow with Custom Interval
+.PP
+.nf
+.R
+$ wallpaper\-picker slideshow 60
+.RE
+
+.SS Specific Monitor
+.PP
+.nf
+.R
+$ wallpaper\-picker -m HDMI-A-1 pick
+.RE
+
+.SS Add New Wallpaper Directory
+.PP
+.nf
+.R
+$ wallpaper\-picker add-dir ~/Downloads/wallpapers
+.RE
+
+.SS Check System Status
+.PP
+.nf
+.R
+$ wallpaper\-picker doctor
+.RE
+
+.SH HYPERLAND INTEGRATION
+Add these bindings to \fI~/.config/hypr/hyprland.conf\fR:
+
+.PP
+.nf
+.RS
+# Interactive picker
+bind = SUPER, W, exec, wallpaper\-picker pick
+
+# Browse files
+bind = SUPER SHIFT, W, exec, wallpaper\-picker browse
+
+# Random wallpaper
+bind = SUPER CTRL, W, exec, wallpaper\-picker random
+
+# Stop wallpaper
+bind = SUPER ALT, W, exec, wallpaper\-picker stop
+.RE
+
+.SH DEPENDENCIES
+.TP
+.B Required
+.BR mpvpaper (AUR)
+Video wallpaper utility for wlroots
+.br
+.BR fzf
+Fuzzy finder for interactive picker
+.br
+.BR mpv
+Media player for previews
+.br
+.BR jq
+JSON processing for state management
+
+.TP
+.B Optional
+.BR ffmpeg
+Video thumbnails and metadata
+.br
+.BR libnotify
+Desktop notifications
+.br
+.BR systemd
+Startup service support
+
+.SH INSTALLATION
+
+.SS From AUR
+.PP
+.nf
+.RS
+$ yay -S wallpaper\-picker
+.RE
+
+.SS Manual Installation
+.PP
+.nf
+.R
+$ curl -fsSL https://raw.githubusercontent.com/shadowarch/wallpaper-picker/main/wallpaper-picker -o ~/.local/bin/wallpaper-picker
+$ chmod +x ~/.local/bin/wallpaper-picker
+.RE
+
+.SH BUGS
+Report bugs at: \fIhttps://github.com/shadowarch/wallpaper-picker/issues\fR
+
+.SH AUTHOR
+Written by shadowarch
+
+.SH COPYRIGHT
+MIT License
+Copyright \(co 2026 shadowarch
+
+.SH SEE ALSO
+.BR mpvpaper (1),
+.BR fzf (1),
+.BR hyprland (1)

@@ -1,0 +1,1102 @@
+#!/usr/bin/env bash
+#
+# =============================================================================
+# ███████╗██╗   ██╗██████╗ ██████╗  █████╗ ██████╗ 
+# ██╔════╝██║   ██║██╔══██╗██╔══██╗██╔══██╗██╔══██╗
+# ███████╗██║   ██║██████╔╝██████╔╝███████║██████╔╝
+# ╚════██║██║   ██║██╔══██╗██╔══██╗██╔══██║██╔══██╗
+# ███████║╚██████╔╝██████╔╝██████╔╝██║  ██║██████╔╝
+# ╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ 
+# =============================================================================
+#
+# A sleek, feature-rich video wallpaper manager for Arch Linux/Hyprland
+# 
+# Author:  shadowarch
+# Version: 2.0.0
+# License: MIT
+# Repository: https://github.com/shadowarch/wallpaper-picker
+#
+# =============================================================================
+
+set -eo pipefail
+shopt -s nullglob
+
+# Script metadata
+readonly SCRIPT_NAME="${0##*/}"
+readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_AUTHOR="shadowarch"
+readonly SCRIPT_REPO="https://github.com/shadowarch/wallpaper-picker"
+
+# XDG directories (properly quoted for paths with spaces)
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# Directories
+readonly APP_NAME="wallpaper-picker"
+readonly CONFIG_DIR="${XDG_CONFIG_HOME}/${APP_NAME}"
+readonly CACHE_DIR="${XDG_CACHE_HOME}/${APP_NAME}"
+readonly DATA_DIR="${XDG_DATA_HOME}/${APP_NAME}"
+
+# Files
+readonly CONFIG_FILE="${CONFIG_DIR}/config"
+readonly STATE_FILE="${CACHE_DIR}/state.json"
+readonly HISTORY_FILE="${DATA_DIR}/history"
+readonly FAVORITES_FILE="${DATA_DIR}/favorites"
+readonly WATCH_DIRS_FILE="${CONFIG_DIR}/watch-dirs"
+readonly LOG_FILE="${CACHE_DIR}/${APP_NAME}.log"
+
+# Ensure directories exist
+mkdir -p "${CONFIG_DIR}" "${CACHE_DIR}" "${DATA_DIR}" 2>/dev/null || true
+
+# =============================================================================
+# ANSI Colors (Arch Linux pacman style)
+# =============================================================================
+
+# Standard colors
+readonly C_RESET='\033[0m'
+readonly C_BOLD='\033[1m'
+readonly C_DIM='\033[2m'
+readonly C_RED='\033[31m'
+readonly C_GREEN='\033[32m'
+readonly C_YELLOW='\033[33m'
+readonly C_BLUE='\033[34m'
+readonly C_MAGENTA='\033[35m'
+readonly C_CYAN='\033[36m'
+
+# Status colors
+readonly SUCCESS="${C_GREEN}✓${C_RESET}"
+readonly WARNING="${C_YELLOW}!${C_RESET}"
+readonly ERROR="${C_RED}✗${C_RESET}"
+readonly INFO="${C_CYAN}○${C_RESET}"
+
+# =============================================================================
+# Configuration defaults
+# =============================================================================
+
+# Monitor configuration
+MONITOR=""
+AUTO_DETECT_MONITOR="yes"
+
+# Directory configuration  
+DEFAULT_WALLPAPER_DIR="${HOME}/Videos/wallpapers"
+
+# Playback configuration
+ENABLE_AUDIO="no"
+LOOP_MODE="inf"
+
+# Slideshow configuration
+SLIDESHOW_INTERVAL=30
+SLIDESHOW_SHUFFLE="no"
+
+# UI configuration
+THUMBNAIL_ENABLED="yes"
+CACHE_THUMBNAILS="yes"
+NOTIFICATIONS_ENABLED="yes"
+PREVIEW_ENABLED="yes"
+PREVIEW_TIMEOUT=3
+
+# Startup configuration
+STARTUP_MODE="manual"
+
+# =============================================================================
+# Global state
+# =============================================================================
+
+CURRENT_WALLPAPER=""
+SLIDESHOW_PID=""
+
+# =============================================================================
+# Logging functions
+# =============================================================================
+
+log() {
+    local level="${1:-INFO}"
+    local message="${2:-}"
+    local timestamp
+    timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[${timestamp}] [${level}] ${message}" >> "${LOG_FILE}" 2>/dev/null || true
+    
+    if [[ "$level" == "ERROR" || "$level" == "WARN" ]]; then
+        echo -e "${ERROR}[${level}]${C_RESET} ${message}" >&2
+    fi
+}
+
+log_info() { log "INFO" "$1"; }
+log_warn() { log "WARN" "$1"; }
+log_error() { log "ERROR" "$1"; }
+
+# =============================================================================
+# Signal handlers
+# =============================================================================
+
+cleanup() {
+    if [[ -n "${SLIDESHOW_PID}" ]] && kill -0 "${SLIDESHOW_PID}" 2>/dev/null; then
+        kill "${SLIDESHOW_PID}" 2>/dev/null || true
+    fi
+}
+
+trap cleanup EXIT INT TERM
+
+# =============================================================================
+# Utility functions
+# =============================================================================
+
+is_command() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+require_command() {
+    local cmd="$1"
+    local pkg="${2:-$cmd}"
+    
+    if ! is_command "$cmd"; then
+        echo -e "${ERROR}Error:${C_RESET} Required command not found: ${cmd}"
+        echo "       Install with: sudo pacman -S ${pkg}"
+        echo "       Or for AUR packages: yay -S ${pkg}"
+        exit 1
+    fi
+}
+
+check_dependencies() {
+    local missing=()
+    
+    is_command mpvpaper || missing+=("mpvpaper")
+    is_command fzf || missing+=("fzf")
+    is_command mpv || missing+=("mpv")
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "${WARNING}Warning:${C_RESET} Missing dependencies:"
+        for dep in "${missing[@]}"; do
+            echo "  • ${dep}"
+        done
+        return 1
+    fi
+    return 0
+}
+
+# =============================================================================
+# Configuration management
+# =============================================================================
+
+load_config() {
+    if [[ ! -f "${CONFIG_FILE}" ]]; then
+        create_default_config
+    fi
+    
+    # Source config (safely handle spaces and special chars)
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        [[ -z "$value" ]] && continue
+        
+        # Remove quotes and trim
+        value="${value#\"}"
+        value="${value%\"}"
+        value="${value#\'}"
+        value="${value%\'}"
+        value="${value%"${value##*[![:space:]]}"}"
+        
+        case "$key" in
+            MONITOR) MONITOR="$value" ;;
+            AUTO_DETECT_MONITOR) AUTO_DETECT_MONITOR="$value" ;;
+            DEFAULT_WALLPAPER_DIR) DEFAULT_WALLPAPER_DIR="$value" ;;
+            ENABLE_AUDIO) ENABLE_AUDIO="$value" ;;
+            LOOP_MODE) LOOP_MODE="$value" ;;
+            SLIDESHOW_INTERVAL) SLIDESHOW_INTERVAL="$value" ;;
+            SLIDESHOW_SHUFFLE) SLIDESHOW_SHUFFLE="$value" ;;
+            THUMBNAIL_ENABLED) THUMBNAIL_ENABLED="$value" ;;
+            CACHE_THUMBNAILS) CACHE_THUMBNAILS="$value" ;;
+            NOTIFICATIONS_ENABLED) NOTIFICATIONS_ENABLED="$value" ;;
+            PREVIEW_ENABLED) PREVIEW_ENABLED="$value" ;;
+            PREVIEW_TIMEOUT) PREVIEW_TIMEOUT="$value" ;;
+            STARTUP_MODE) STARTUP_MODE="$value" ;;
+        esac
+    done < "${CONFIG_FILE}"
+    
+    # Load watch directories
+    if [[ -f "${WATCH_DIRS_FILE}" ]]; then
+        mapfile -t WATCH_DIRS < "${WATCH_DIRS_FILE}"
+    fi
+}
+
+create_default_config() {
+    log_info "Creating default configuration at ${CONFIG_FILE}"
+    
+    cat > "${CONFIG_FILE}" <<'EOF'
+# =============================================================================
+# Wallpaper Picker Configuration
+# =============================================================================
+# Version: 2.0.0
+# Documentation: https://github.com/shadowarch/wallpaper-picker
+# =============================================================================
+
+# Monitor Configuration
+# Leave empty for auto-detection
+MONITOR=""
+AUTO_DETECT_MONITOR="yes"
+
+# Directory Configuration
+DEFAULT_WALLPAPER_DIR="$HOME/Videos/wallpapers"
+
+# Playback Configuration
+ENABLE_AUDIO="no"
+LOOP_MODE="inf"
+
+# Slideshow Configuration
+SLIDESHOW_INTERVAL=30
+SLIDESHOW_SHUFFLE="no"
+
+# UI Configuration
+THUMBNAIL_ENABLED="yes"
+CACHE_THUMBNAILS="yes"
+NOTIFICATIONS_ENABLED="yes"
+PREVIEW_ENABLED="yes"
+PREVIEW_TIMEOUT=3
+
+# Startup Configuration
+STARTUP_MODE="manual"
+EOF
+
+    # Ensure files exist
+    touch "${HISTORY_FILE}" "${FAVORITES_FILE}" "${WATCH_DIRS_FILE}" 2>/dev/null || true
+    
+    log_info "Default configuration created"
+}
+
+# =============================================================================
+# Monitor functions
+# =============================================================================
+
+get_active_monitors() {
+    if is_command hyprctl; then
+        hyprctl monitors 2>/dev/null | grep -E "^Monitor" | awk '{print $2}' || echo "default"
+    else
+        echo "default"
+    fi
+}
+
+get_primary_monitor() {
+    local monitors
+    mapfile -t monitors < <(get_active_monitors)
+    
+    for m in "${monitors[@]}"; do
+        if [[ "$m" =~ ^(HDMI|DP|eDP) ]]; then
+            echo "$m"
+            return
+        fi
+    done
+    
+    echo "${monitors[0]:-default}"
+}
+
+resolve_monitor() {
+    if [[ -n "${MONITOR}" ]]; then
+        echo "${MONITOR}"
+    else
+        get_primary_monitor
+    fi
+}
+
+# =============================================================================
+# Wallpaper functions
+# =============================================================================
+
+kill_wallpaper() {
+    local monitor="${1:-$(resolve_monitor)}"
+    
+    if pgrep -f "mpvpaper.*${monitor}" >/dev/null 2>&1; then
+        pkill -f "mpvpaper.*${monitor}" 2>/dev/null || true
+        sleep 0.2
+    fi
+}
+
+set_wallpaper() {
+    local video="$1"
+    local monitor
+    monitor=$(resolve_monitor)
+    
+    # Validate video exists
+    if [[ ! -f "$video" ]]; then
+        echo -e "${ERROR}Error:${C_RESET} File not found: ${video}"
+        return 1
+    fi
+    
+    # Kill existing
+    kill_wallpaper "$monitor"
+    
+    # Build options
+    local audio_opts=""
+    [[ "${ENABLE_AUDIO}" != "yes" ]] && audio_opts="no-audio"
+    
+    # Start new wallpaper
+    mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
+        "$monitor" "$video" &>/dev/null &
+    
+    CURRENT_WALLPAPER="$video"
+    save_state
+    add_to_history "$video"
+    
+    local filename
+    filename=$(basename "$video")
+    echo -e "${SUCCESS} Wallpaper set: ${C_BOLD}${filename}${C_RESET}"
+    
+    # Notify
+    if [[ "${NOTIFICATIONS_ENABLED}" == "yes" ]]; then
+        notify-send "Wallpaper" "Set: ${filename}" -t 2000 2>/dev/null || true
+    fi
+    
+    return 0
+}
+
+get_current_wallpaper() {
+    # Try running process
+    local current
+    current=$(pgrep -a mpvpaper 2>/dev/null | grep -oE "[^ ]+\.(mp4|webm|mkv)" | head -1 || true)
+    
+    # Try state file
+    if [[ -z "$current" ]] && [[ -f "${STATE_FILE}" ]]; then
+        current=$(grep -oE '"current":\s*"[^"]+"' "${STATE_FILE}" 2>/dev/null | \
+            sed 's/"current":\s*"//;s/"$//' || true)
+    fi
+    
+    echo "$current"
+}
+
+get_random_wallpaper() {
+    local videos=()
+    mapfile -t videos < <(get_all_videos)
+    
+    if [[ ${#videos[@]} -eq 0 ]]; then
+        echo ""
+        return 1
+    fi
+    
+    local random_index=$((RANDOM % ${#videos[@]}))
+    echo "${videos[$random_index]}"
+}
+
+# =============================================================================
+# Video discovery
+# =============================================================================
+
+get_all_videos() {
+    local videos=()
+    local -A seen=()
+    
+    # Helper to add video
+    add_video() {
+        local video="$1"
+        [[ -z "${seen[$video]}" ]] || return
+        seen[$video]=1
+        videos+=("$video")
+    }
+    
+    # From default directory
+    if [[ -d "${DEFAULT_WALLPAPER_DIR}" ]]; then
+        for ext in mp4 webm mkv avi mov m4v; do
+            for video in "${DEFAULT_WALLPAPER_DIR}"/*."${ext}" \
+                         "${DEFAULT_WALLPAPER_DIR}"/*."${ext^^}"; do
+                [[ -f "$video" ]] && add_video "$video"
+            done
+        done
+    fi
+    
+    # From custom directories
+    for dir in "${WATCH_DIRS[@]:-}"; do
+        [[ -d "$dir" ]] || continue
+        for ext in mp4 webm mkv avi mov m4v; do
+            for video in "$dir"/*."${ext}" "$dir"/*."${ext^^}"; do
+                [[ -f "$video" ]] && add_video "$video"
+            done
+        done
+    done
+    
+    # Print unique videos
+    printf '%s\n' "${videos[@]}"
+}
+
+count_videos() {
+    get_all_videos | wc -l
+}
+
+# =============================================================================
+# State management
+# =============================================================================
+
+save_state() {
+    local current="${CURRENT_WALLPAPER:-$(get_current_wallpaper)}"
+    local timestamp
+    timestamp=$(date -Iseconds)
+    
+    cat > "${STATE_FILE}" <<EOF
+{
+    "current": "${current}",
+    "monitor": "$(resolve_monitor)",
+    "timestamp": "${timestamp}",
+    "version": "${SCRIPT_VERSION}"
+}
+EOF
+}
+
+add_to_history() {
+    local video="$1"
+    local timestamp
+    timestamp=$(date -Iseconds)
+    
+    echo "${timestamp}|${video}" >> "${HISTORY_FILE}"
+    
+    # Keep last 100 entries
+    tail -n 100 "${HISTORY_FILE}" > "${HISTORY_FILE}.tmp" && \
+        mv "${HISTORY_FILE}.tmp" "${HISTORY_FILE}"
+}
+
+is_favorite() {
+    local video="$1"
+    local basename
+    basename=$(basename "$video")
+    
+    [[ -f "${FAVORITES_FILE}" ]] || return 1
+    
+    # Simple grep - check if basename or full path exists in favorites
+    if grep -F -- "$basename" "${FAVORITES_FILE}" 2>/dev/null | grep -qF -- "$video"; then
+        return 0
+    fi
+    if grep -qF -- "$video" "${FAVORITES_FILE}" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+toggle_favorite() {
+    local video="$1"
+    
+    if [[ ! -f "$video" ]]; then
+        echo -e "${ERROR}Error:${C_RESET} File not found: ${video}"
+        return 1
+    fi
+    
+    if is_favorite "$video"; then
+        # Remove from favorites - write all lines except matching
+        local temp_file
+        temp_file=$(mktemp)
+        while IFS= read -r line; do
+            if [[ "$line" != "$video" ]] && [[ "${line##*/}" != "${video##*/}" ]]; then
+                echo "$line"
+            fi
+        done < "${FAVORITES_FILE}" > "$temp_file"
+        mv "$temp_file" "${FAVORITES_FILE}"
+        echo -e "${INFO}Removed from favorites"
+        return 1
+    else
+        # Add to favorites
+        echo "$video" >> "${FAVORITES_FILE}"
+        echo -e "${SUCCESS}★ Added to favorites"
+        return 0
+    fi
+}
+
+# =============================================================================
+# Interactive picker (fzf)
+# =============================================================================
+
+interactive_picker() {
+    require_command fzf "fzf"
+    
+    local videos=()
+    mapfile -t videos < <(get_all_videos)
+    
+    if [[ ${#videos[@]} -eq 0 ]]; then
+        echo -e "${ERROR}No wallpapers found!${C_RESET}"
+        echo ""
+        echo "  Add wallpapers to: ${DEFAULT_WALLPAPER_DIR}"
+        echo "  Or use: wallpaper-picker add-dir /path/to/wallpapers"
+        return 1
+    fi
+    
+    echo -e "${C_CYAN}Loading ${#videos[@]} wallpapers...${C_RESET}"
+    
+    # Use a temp file for fzf to avoid issues with special chars
+    local temp_file
+    temp_file=$(mktemp)
+    printf '%s\n' "${videos[@]}" > "$temp_file"
+    
+    # FZF options
+    local fzf_opts=(
+        --prompt="🎨 Wallpaper > "
+        --height=60%
+        --reverse
+        --border=rounded
+        --header='Enter: Set | Ctrl+R: Random | Esc: Exit'
+        --bind="ctrl-r:execute-silent(wallpaper-picker random)"
+        --info=hidden
+        --margin=1
+        --color='bg+:#1a1a2e,fg+:#eeeedd,hl:#51a4ff:bold,fg:#6272a4,hl+:#51a4ff'
+    )
+    
+    # Preview window
+    if [[ "${PREVIEW_ENABLED}" == "yes" ]]; then
+        fzf_opts+=(
+            --preview-window=right:50%:wrap
+            --preview-window=hidden
+            --bind="ctrl-p:toggle-preview"
+            --bind="enter:execute(wallpaper-picker set {})+accept"
+            --header-lines=0
+        )
+    fi
+    
+    # Run fzf
+    local selected
+    selected=$(fzf "${fzf_opts[@]}" < "$temp_file")
+    
+    rm -f "$temp_file"
+    
+    if [[ -n "$selected" ]]; then
+        set_wallpaper "$selected"
+    else
+        echo -e "${INFO}Selection cancelled"
+        return 1
+    fi
+}
+
+set_wallpaper_from_stdin() {
+    local selected
+    while read -r selected; do
+        [[ -n "$selected" ]] && set_wallpaper "$selected"
+        break
+    done
+}
+
+# =============================================================================
+# File browser picker
+# =============================================================================
+
+browse_picker() {
+    require_command fzf "fzf"
+    
+    local selected
+    selected=$(find "${HOME}" -type f \( \
+        -name "*.mp4" -o -name "*.webm" -o -name "*.mkv" -o \
+        -name "*.avi" -o -name "*.mov" -o -name "*.m4v" \
+        \) 2>/dev/null | \
+        fzf --prompt="📁 Browse videos > " \
+            --height=70% \
+            --reverse \
+            --border \
+            --margin=1)
+    
+    if [[ -n "$selected" ]]; then
+        set_wallpaper "$selected"
+    fi
+}
+
+# =============================================================================
+# Slideshow management
+# =============================================================================
+
+start_slideshow() {
+    local interval="${1:-${SLIDESHOW_INTERVAL}}"
+    local videos=()
+    
+    mapfile -t videos < <(get_all_videos)
+    
+    if [[ ${#videos[@]} -eq 0 ]]; then
+        echo -e "${ERROR}No wallpapers found!${C_RESET}"
+        return 1
+    fi
+    
+    # Shuffle if enabled
+    if [[ "${SLIDESHOW_SHUFFLE}" == "yes" ]]; then
+        local shuffled=()
+        while [[ ${#videos[@]} -gt 0 ]]; do
+            local idx=$((RANDOM % ${#videos[@]}))
+            shuffled+=("${videos[$idx]}")
+            unset 'videos[idx]'
+            videos=("${videos[@]}")
+        done
+        videos=("${shuffled[@]}")
+    fi
+    
+    echo -e "${C_MAGENTA}⟳${C_RESET} Slideshow started (${#videos[@]} wallpapers, ${interval}s interval)"
+    echo "  Press Ctrl+C to stop"
+    
+    SLIDESHOW_PID=$$
+    
+    while true; do
+        for video in "${videos[@]}"; do
+            [[ -f "$video" ]] && set_wallpaper "$video"
+            sleep "$interval"
+        done
+    done
+}
+
+# =============================================================================
+# Directory management
+# =============================================================================
+
+add_watch_directory() {
+    local dir="$1"
+    
+    if [[ ! -d "$dir" ]]; then
+        echo -e "${ERROR}Directory not found:${C_RESET} $dir"
+        return 1
+    fi
+    
+    if [[ -f "${WATCH_DIRS_FILE}" ]] && grep -qF -- "$dir" "${WATCH_DIRS_FILE}"; then
+        echo -e "${WARNING}Already watching:${C_RESET} $dir"
+        return 1
+    fi
+    
+    echo "$dir" >> "${WATCH_DIRS_FILE}"
+    sort -u -o "${WATCH_DIRS_FILE}" "${WATCH_DIRS_FILE}"
+    
+    echo -e "${SUCCESS}Added:${C_RESET} $dir"
+    
+    local count
+    count=$(find "$dir" -type f \( -name "*.mp4" -o -name "*.webm" -o -name "*.mkv" \) 2>/dev/null | wc -l)
+    echo "  Found ${count} video files"
+}
+
+remove_watch_directory() {
+    local dir="$1"
+    
+    if [[ -f "${WATCH_DIRS_FILE}" ]] && grep -qF -- "$dir" "${WATCH_DIRS_FILE}"; then
+        grep -vF -- "$dir" "${WATCH_DIRS_FILE}" > "${WATCH_DIRS_FILE}.tmp" && \
+            mv "${WATCH_DIRS_FILE}.tmp" "${WATCH_DIRS_FILE}"
+        echo -e "${SUCCESS}Removed:${C_RESET} $dir"
+    else
+        echo -e "${ERROR}Not in watch list:${C_RESET} $dir"
+        return 1
+    fi
+}
+
+list_watch_directories() {
+    if [[ -f "${WATCH_DIRS_FILE}" ]] && [[ -s "${WATCH_DIRS_FILE}" ]]; then
+        echo -e "${C_CYAN}Watch directories:${C_RESET}"
+        while IFS= read -r dir; do
+            local count
+            count=$(find "$dir" -type f \( -name "*.mp4" -o -name "*.webm" -o -name "*.mkv" \) 2>/dev/null | wc -l)
+            echo "  • $dir (${count} videos)"
+        done < "${WATCH_DIRS_FILE}"
+    else
+        echo -e "${INFO}No custom watch directories${C_RESET}"
+        echo "  Default: ${DEFAULT_WALLPAPER_DIR}"
+    fi
+}
+
+# =============================================================================
+# Systemd integration
+# =============================================================================
+
+enable_startup_service() {
+    local service_dir="${HOME}/.config/systemd/user"
+    local service_file="${service_dir}/wallpaper-picker.service"
+    
+    mkdir -p "$service_dir"
+    
+    cat > "$service_file" <<EOF
+[Unit]
+Description=Wallpaper Picker Slideshow Service
+After=graphical.target
+
+[Service]
+Type=simple
+ExecStart=${HOME}/.local/bin/wallpaper-picker slideshow ${SLIDESHOW_INTERVAL}
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+
+[Install]
+WantedBy=default.target
+EOF
+
+    systemctl --user daemon-reload 2>/dev/null || true
+    systemctl --user enable --now wallpaper-picker.service 2>/dev/null || true
+    
+    echo -e "${SUCCESS}Slideshow service enabled${C_RESET}"
+}
+
+disable_startup_service() {
+    systemctl --user disable --now wallpaper-picker.service 2>/dev/null || true
+    echo -e "${INFO}Slideshow service disabled${C_RESET}"
+}
+
+# =============================================================================
+# Commands
+# =============================================================================
+
+cmd_pick() {
+    interactive_picker
+}
+
+cmd_browse() {
+    browse_picker
+}
+
+cmd_random() {
+    local video
+    video=$(get_random_wallpaper)
+    
+    if [[ -n "$video" ]]; then
+        set_wallpaper "$video"
+    else
+        echo -e "${ERROR}No wallpapers found!${C_RESET}"
+        return 1
+    fi
+}
+
+cmd_slideshow() {
+    start_slideshow "${1:-}"
+}
+
+cmd_stop() {
+    kill_wallpaper
+    echo -e "${INFO}Wallpaper stopped${C_RESET}"
+}
+
+cmd_current() {
+    local current
+    current=$(get_current_wallpaper)
+    
+    if [[ -n "$current" ]]; then
+        echo -e "${C_CYAN}Current wallpaper:${C_RESET}"
+        echo "  File:     $(basename "$current")"
+        echo "  Path:     $current"
+        echo "  Monitor:  $(resolve_monitor)"
+        
+        if is_favorite "$current"; then
+            echo -e "  Favorite: ${C_YELLOW}★${C_RESET}"
+        fi
+    else
+        echo -e "${INFO}No wallpaper currently set${C_RESET}"
+    fi
+}
+
+cmd_next() {
+    local videos=()
+    local current
+    local next_idx=0
+    
+    mapfile -t videos < <(get_all_videos)
+    current=$(get_current_wallpaper)
+    
+    for i in "${!videos[@]}"; do
+        if [[ "${videos[$i]}" == "$current" ]]; then
+            next_idx=$(( (i + 1) % ${#videos[@]} ))
+            break
+        fi
+    done
+    
+    set_wallpaper "${videos[$next_idx]}"
+}
+
+cmd_prev() {
+    local videos=()
+    local current
+    local prev_idx=0
+    
+    mapfile -t videos < <(get_all_videos)
+    current=$(get_current_wallpaper)
+    
+    for i in "${!videos[@]}"; do
+        if [[ "${videos[$i]}" == "$current" ]]; then
+            prev_idx=$(( (i - 1 + ${#videos[@]}) % ${#videos[@]} ))
+            break
+        fi
+    done
+    
+    set_wallpaper "${videos[$prev_idx]}"
+}
+
+cmd_list() {
+    local videos=()
+    local count=1
+    local current
+    
+    mapfile -t videos < <(get_all_videos)
+    current=$(get_current_wallpaper)
+    
+    if [[ ${#videos[@]} -eq 0 ]]; then
+        echo -e "${INFO}No wallpapers found${C_RESET}"
+        return 1
+    fi
+    
+    echo -e "${C_CYAN}Available wallpapers (${#videos[@]}):${C_RESET}"
+    echo ""
+    
+    for video in "${videos[@]}"; do
+        local basename="${video##*/}"
+        
+        if [[ "$video" == "$current" ]]; then
+            echo -e "  ${C_GREEN}▶${C_RESET} ${count}. ${basename} ${C_DIM}(current)${C_RESET}"
+        elif is_favorite "$video"; then
+            echo -e "  ${C_YELLOW}★${C_RESET} ${count}. ${basename}"
+        else
+            echo "    ${count}. ${basename}"
+        fi
+        ((count++))
+    done
+}
+
+cmd_add_dir() {
+    add_watch_directory "${1:-}"
+}
+
+cmd_remove_dir() {
+    remove_watch_directory "${1:-}"
+}
+
+cmd_watch_dirs() {
+    list_watch_directories
+}
+
+cmd_toggle_fav() {
+    local video="${1:-$(get_current_wallpaper)}"
+    toggle_favorite "$video"
+}
+
+cmd_config() {
+    ${EDITOR:-nano} "${CONFIG_FILE}"
+}
+
+cmd_monitors() {
+    echo -e "${C_CYAN}Available monitors:${C_RESET}"
+    while IFS= read -r m; do
+        echo "  • $m"
+    done < <(get_active_monitors)
+    echo ""
+    echo "  Active: $(resolve_monitor)"
+}
+
+cmd_doctor() {
+    echo -e "${C_BOLD}Wallpaper Picker Doctor${C_RESET}"
+    echo ""
+    
+    local issues=0
+    
+    # Dependencies
+    echo -e "${C_CYAN}Checking dependencies...${C_RESET}"
+    
+    for cmd in mpvpaper fzf mpv; do
+        if is_command "$cmd"; then
+            echo -e "  ${C_GREEN}✓${C_RESET} ${cmd}"
+        else
+            echo -e "  ${C_RED}✗${C_RESET} ${cmd}"
+            issues=$((issues + 1))
+        fi
+    done
+    
+    # ffprobe is optional
+    if is_command ffprobe; then
+        echo -e "  ${C_GREEN}✓${C_RESET} ffprobe (optional)"
+    else
+        echo -e "  ${C_YELLOW}!${C_RESET} ffprobe (optional, for previews)"
+    fi
+    
+    echo ""
+    
+    # Directories
+    echo -e "${C_CYAN}Checking directories...${C_RESET}"
+    
+    if [[ -d "${DEFAULT_WALLPAPER_DIR}" ]]; then
+        local count
+        count=$(count_videos)
+        echo -e "  ${C_GREEN}✓${C_RESET} ${DEFAULT_WALLPAPER_DIR} (${count} videos)"
+    else
+        echo -e "  ${C_YELLOW}!${C_RESET} ${DEFAULT_WALLPAPER_DIR} (not found)"
+        echo "    Run: mkdir -p ${DEFAULT_WALLPAPER_DIR}"
+    fi
+    
+    # Running status
+    echo ""
+    echo -e "${C_CYAN}Checking wallpaper status...${C_RESET}"
+    
+    if pgrep -x mpvpaper >/dev/null 2>&1; then
+        echo -e "  ${C_GREEN}✓${C_RESET} mpvpaper is running"
+    else
+        echo -e "  ${C_INFO}○${C_RESET} No wallpaper running"
+    fi
+    
+    echo ""
+    
+    if [[ $issues -eq 0 ]]; then
+        echo -e "${C_GREEN}All checks passed!${C_RESET}"
+    else
+        echo -e "${C_YELLOW}${issues} issue(s) found${C_RESET}"
+    fi
+}
+
+cmd_status() {
+    echo -e "${C_BOLD}Wallpaper Picker Status${C_RESET}"
+    echo ""
+    
+    echo -e "${C_CYAN}Configuration:${C_RESET}"
+    echo "  Monitor:      $(resolve_monitor)"
+    echo "  Default dir:  ${DEFAULT_WALLPAPER_DIR}"
+    echo "  Audio:        ${ENABLE_AUDIO}"
+    echo "  Loop mode:    ${LOOP_MODE}"
+    echo "  Slideshow:    ${SLIDESHOW_INTERVAL}s interval"
+    
+    echo ""
+    echo -e "${C_CYAN}Statistics:${C_RESET}"
+    echo "  Total wallpapers: $(count_videos)"
+    echo "  Watch dirs:       ${#WATCH_DIRS[@]:-0}"
+    echo "  History entries:  $(wc -l < "${HISTORY_FILE}" 2>/dev/null || echo 0)"
+    echo "  Favorites:        $(wc -l < "${FAVORITES_FILE}" 2>/dev/null || echo 0)"
+    
+    echo ""
+    cmd_current
+}
+
+cmd_enable_startup() {
+    enable_startup_service
+}
+
+cmd_disable_startup() {
+    disable_startup_service
+}
+
+cmd_gui() {
+    if [[ -x "${HOME}/.local/bin/wallpaper-picker-gui" ]]; then
+        exec "${HOME}/.local/bin/wallpaper-picker-gui" "$@"
+    else
+        echo -e "${ERROR}GUI not installed${C_RESET}"
+        echo "  The GUI component requires GTK4 and Python"
+        echo "  Install with: wallpaper-picker install-gui"
+        return 1
+    fi
+}
+
+cmd_install_gui() {
+    echo -e "${C_BOLD}Installing GUI dependencies...${C_RESET}"
+    echo ""
+    
+    local missing=()
+    
+    # Check GTK4
+    if ! python3 -c "import gi; gi.require_version('Gtk', '4.0')" 2>/dev/null; then
+        missing+=("gtk4")
+    fi
+    
+    # Check PyGObject
+    if ! python3 -c "import gi" 2>/dev/null; then
+        missing+=("python-gobject")
+    fi
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Install with:"
+        echo "  sudo pacman -S ${missing[*]}"
+    else
+        echo -e "${SUCCESS}GUI dependencies satisfied${C_RESET}"
+        echo "  Run 'wallpaper-picker gui' to launch the GUI"
+    fi
+}
+
+cmd_help() {
+    cat <<EOF
+${C_BOLD}wallpaper-picker${C_RESET} v${SCRIPT_VERSION}
+A sleek video wallpaper manager for Arch Linux/Hyprland
+
+${C_BOLD}USAGE:${C_RESET}
+    ${C_CYAN}wallpaper-picker${C_RESET} [COMMAND] [OPTIONS]
+
+${C_BOLD}COMMANDS:${C_RESET}
+    ${C_GREEN}pick${C_RESET}                   Interactive TUI picker
+    ${C_GREEN}gui${C_RESET}                    Launch GTK4 GUI picker
+    ${C_GREEN}browse${C_RESET}                 Browse any video file
+    ${C_GREEN}random${C_RESET}                Set random wallpaper
+    ${C_GREEN}slideshow${C_RESET} [SEC]       Start slideshow mode
+    ${C_GREEN}stop${C_RESET}                  Stop current wallpaper
+    ${C_GREEN}current${C_RESET}               Show current wallpaper
+    ${C_GREEN}next${C_RESET}                  Next wallpaper
+    ${C_GREEN}prev${C_RESET}                  Previous wallpaper
+    ${C_GREEN}list${C_RESET}                  List all wallpapers
+    ${C_GREEN}add-dir${C_RESET} <PATH>        Add watch directory
+    ${C_GREEN}remove-dir${C_RESET} <PATH>      Remove watch directory
+    ${C_GREEN}watch-dirs${C_RESET}             List watch directories
+    ${C_GREEN}toggle-fav${C_RESET}            Toggle favorite status
+    ${C_GREEN}config${C_RESET}                Edit configuration
+    ${C_GREEN}monitors${C_RESET}              List monitors
+    ${C_GREEN}status${C_RESET}                 Detailed status
+    ${C_GREEN}doctor${C_RESET}                Diagnose issues
+    ${C_GREEN}enable-startup${C_RESET}        Enable on login
+    ${C_GREEN}disable-startup${C_RESET}        Disable on login
+    ${C_GREEN}install-gui${C_RESET}            Install GUI dependencies
+    ${C_GREEN}help${C_RESET}                  Show this help
+
+${C_BOLD}OPTIONS:${C_RESET}
+    -h, --help              Show help
+    -v, --version           Show version
+    -m, --monitor <NAME>    Target monitor
+    -d, --dir <PATH>       Wallpaper directory
+
+${C_BOLD}EXAMPLES:${C_RESET}
+    wallpaper-picker pick
+    wallpaper-picker gui
+    wallpaper-picker random
+    wallpaper-picker slideshow 60
+
+${C_BOLD}KEYBINDINGS (Hyprland):${C_RESET}
+    bind = SUPER, W, exec, wallpaper-picker pick
+    bind = SUPER SHIFT, W, exec, wallpaper-picker gui
+
+${C_BOLD}CONFIG:${C_RESET} ${CONFIG_FILE}
+
+EOF
+}
+
+# =============================================================================
+# Main entry point
+# =============================================================================
+
+main() {
+    # Parse global options
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) cmd_help; exit 0 ;;
+            -v|--version) echo "wallpaper-picker v${SCRIPT_VERSION}"; exit 0 ;;
+            -m|--monitor) MONITOR="$2"; shift 2 ;;
+            -d|--dir) DEFAULT_WALLPAPER_DIR="$2"; shift 2 ;;
+            -*) echo -e "${ERROR}Unknown option:${C_RESET} $1"; exit 1 ;;
+            *) break ;;
+        esac
+    done
+    
+    # Load configuration
+    load_config
+    
+    # Parse command
+    local command="${1:-}"
+    shift 2>/dev/null || true
+    
+    case "$command" in
+        pick)           cmd_picker ;;
+        gui)            cmd_gui ;;
+        browse)         cmd_browse ;;
+        random)         cmd_random ;;
+        slideshow)      cmd_slideshow "${1:-}" ;;
+        stop)           cmd_stop ;;
+        current)        cmd_current ;;
+        next)           cmd_next ;;
+        prev)           cmd_prev ;;
+        list)           cmd_list ;;
+        add-dir)        cmd_add_dir "${1:-}" ;;
+        remove-dir)     cmd_remove_dir "${1:-}" ;;
+        watch-dirs)     cmd_watch_dirs ;;
+        toggle-fav)     cmd_toggle_fav "${1:-}" ;;
+        config)         cmd_config ;;
+        monitors)       cmd_monitors ;;
+        status)         cmd_status ;;
+        doctor)         cmd_doctor ;;
+        enable-startup) cmd_enable_startup ;;
+        disable-startup) cmd_disable_startup ;;
+        install-gui)    cmd_install_gui ;;
+        set)            set_wallpaper_from_stdin ;;
+        help|"")        cmd_help ;;
+        *)              echo -e "${ERROR}Unknown command:${C_RESET} $command"; cmd_help; exit 1 ;;
+    esac
+}
+
+# Run
+main "$@"

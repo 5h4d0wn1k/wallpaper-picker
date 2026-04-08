@@ -1,0 +1,47 @@
+name: Feature Request
+description: Suggest a new feature for wallpaper-picker
+title: "[Feature] "
+labels: ["enhancement"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Feature Description
+        Please describe the feature you'd like to see.
+
+  - type: textarea
+    id: feature
+    attributes:
+      label: Feature
+      placeholder: A clear description of the feature
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      placeholder: Why would this feature be useful?
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      placeholder: What alternatives have you considered?
+
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Mockups/Examples
+      placeholder: Any mockups, screenshots, or examples
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label:
+      options:
+        - label: I understand this is a volunteer project
+          required: true
+        - label: I am willing to help implement this feature
+          required: false
