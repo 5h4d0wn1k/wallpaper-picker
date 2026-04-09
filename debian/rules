@@ -1,0 +1,20 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@
+
+override_dh_install:
+	dh_install src/wallpaper-picker usr/bin/
+	dh_install src/wallpaper-picker-gui usr/bin/
+	dh_install desktop/wallpaper-picker.desktop usr/share/applications/
+	dh_install icons/wallpaper-picker.svg usr/share/icons/hicolor/scalable/apps/
+	dh_install icons/wallpaper-picker.svg usr/share/pixmaps/
+	dh_install completions/bash/wallpaper-picker usr/share/bash-completion/completions/
+	dh_install completions/zsh/_wallpaper-picker usr/share/zsh/vendor-completions/
+	dh_install completions/fish/wallpaper-picker.fish usr/share/fish/vendor-completions/
+	dh_install README.md usr/share/doc/wallpaper-picker/
+	dh_install CHANGELOG.md usr/share/doc/wallpaper-picker/
+	dh_install LICENSE usr/share/doc/wallpaper-picker/
+
+override_dh_installman:
+	gzip -c wallpaper-picker.1 > debian/wallpaper-picker/usr/share/man/man1/wallpaper-picker.1.gz

@@ -1,0 +1,29 @@
+wallpaper-picker (2.2.0) stable; urgency=medium
+
+  * Video wallpaper spanning across multiple monitors
+  * Per-monitor preview thumbnails in GUI
+  * Improved GTK4 GUI with better event handling
+  * Fixed command parsing bugs
+  * Better desktop menu integration
+
+ -- 5h4d0wn1k <https://github.com/5h4d0wn1k>  Thu, 09 Apr 2026 06:30:00 +0000
+
+wallpaper-picker (2.1.0) stable; urgency=medium
+
+  * Smart random feature (avoids recently used)
+  * Time-based wallpaper switching
+  * PyWal integration
+  * Improved TUI with preview
+  * Auto-restore on startup
+
+ -- 5h4d0wn1k <https://github.com/5h4d0wn1k>  Wed, 08 Apr 2026 12:00:00 +0000
+
+wallpaper-picker (2.0.0) stable; urgency=medium
+
+  * Initial stable release
+  * Interactive TUI picker
+  * GTK4 GUI
+  * Multi-monitor support
+  * Slideshow mode
+
+ -- 5h4d0wn1k <https://github.com/5h4d0wn1k>  Tue, 07 Apr 2026 10:00:00 +0000
