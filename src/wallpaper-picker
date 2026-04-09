@@ -23,7 +23,7 @@ shopt -s nullglob
 
 # Script metadata
 readonly SCRIPT_NAME="${0##*/}"
-readonly SCRIPT_VERSION="2.0.0"
+readonly SCRIPT_VERSION="2.1.0"
 readonly SCRIPT_AUTHOR="shadowarch"
 readonly SCRIPT_REPO="https://github.com/shadowarch/wallpaper-picker"
 
