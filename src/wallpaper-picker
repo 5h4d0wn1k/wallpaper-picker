@@ -18,7 +18,7 @@
 #
 # =============================================================================
 
-set -eo pipefail
+set -o pipefail
 shopt -s nullglob
 
 # Script metadata
@@ -404,10 +404,10 @@ get_all_videos() {
     fi
     
     # From custom directories
-    for dir in "${WATCH_DIRS[@]:-}"; do
+    for dir in "${WATCH_DIRS[@]}"; do
         [[ -d "$dir" ]] || continue
         for ext in mp4 webm mkv avi mov m4v; do
-            for video in "$dir"/*."${ext}" "$dir"/*."${ext^^}"; do
+            for video in "$dir"/*."${ext}" "$dir"/*."${ext^^}" 2>/dev/null; do
                 [[ -f "$video" ]] && add_video "$video"
             done
         done
@@ -541,7 +541,7 @@ interactive_picker() {
             --preview-window=right:50%:wrap
             --preview-window=hidden
             --bind="ctrl-p:toggle-preview"
-            --bind="enter:execute(wallpaper-picker set {})+accept"
+            --bind="enter:execute-silent(bash -c 'wallpaper-picker set \"{}\"')+accept"
             --header-lines=0
         )
     fi
@@ -1071,7 +1071,7 @@ main() {
     shift 2>/dev/null || true
     
     case "$command" in
-        pick)           cmd_picker ;;
+        pick)           cmd_pick ;;
         gui)            cmd_gui ;;
         browse)         cmd_browse ;;
         random)         cmd_random ;;
