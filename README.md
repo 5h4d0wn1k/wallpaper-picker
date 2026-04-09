@@ -26,9 +26,15 @@
 |---------|-------------|
 | 🎨 **Interactive TUI** | Beautiful fzf-based picker with video preview |
 | 🖥️ **GTK4 GUI** | Full graphical interface with thumbnails |
-| 🔄 **Multiple Modes** | Manual, random, slideshow, and sequential playback |
 | 📺 **Multi-Monitor** | Full support for multiple displays with auto-detection |
+| 🎬 **Video Spanning** | Video wallpapers across multiple monitors |
+| ⏸️ **Pause/Resume** | Pause and resume wallpaper playback |
+| 🔋 **Battery-Aware** | Automatic quality adjustment on battery |
+| 🌐 **Wallhaven Search** | Search and download wallpapers from Wallhaven |
+| 🔀 **Multiple Backends** | mpvpaper, swww, hyprpaper, swaybg support |
 | ⭐ **Favorites** | Mark and quickly access your favorite wallpapers |
+| 🕐 **Time-Based** | Automatic wallpaper based on time of day |
+| 🎲 **Smart Random** | Avoid recently used wallpapers |
 | 📜 **History** | Track your wallpaper usage over time |
 | 🖼️ **Thumbnails** | Fast thumbnail caching for instant browsing |
 | 🔔 **Notifications** | Desktop notifications when changing wallpapers |
@@ -113,7 +119,18 @@ sudo pacman -S fzf mpv jq ffmpeg libnotify gtk4 python-gobject
 | `wallpaper-picker gui` | GTK4 GUI picker |
 | `wallpaper-picker browse` | Browse any video file |
 | `wallpaper-picker random` | Set random wallpaper |
+| `wallpaper-picker smart-random` | Random (avoids recent) |
+| `wallpaper-picker time-based` | Wallpaper based on time of day |
 | `wallpaper-picker slideshow 60` | Slideshow mode (60s) |
+
+### Playback Control
+
+| Command | Description |
+|---------|-------------|
+| `wallpaper-picker stop` | Stop current wallpaper |
+| `wallpaper-picker pause` | Pause wallpaper |
+| `wallpaper-picker resume` | Resume wallpaper |
+| `wallpaper-picker toggle` | Toggle pause/resume |
 
 ### Navigation Commands
 
@@ -132,6 +149,7 @@ sudo pacman -S fzf mpv jq ffmpeg libnotify gtk4 python-gobject
 | `wallpaper-picker remove-dir <path>` | Remove directory |
 | `wallpaper-picker watch-dirs` | List watch directories |
 | `wallpaper-picker toggle-fav` | Toggle favorite |
+| `wallpaper-picker wallhaven <query>` | Search Wallhaven |
 
 ### System Commands
 
@@ -140,6 +158,8 @@ sudo pacman -S fzf mpv jq ffmpeg libnotify gtk4 python-gobject
 | `wallpaper-picker status` | Show detailed status |
 | `wallpaper-picker doctor` | Diagnose issues |
 | `wallpaper-picker monitors` | List monitors |
+| `wallpaper-picker backend [name]` | Set/query wallpaper backend |
+| `wallpaper-picker quality` | Show quality profile |
 | `wallpaper-picker enable-startup` | Enable on login |
 | `wallpaper-picker disable-startup` | Disable on login |
 
