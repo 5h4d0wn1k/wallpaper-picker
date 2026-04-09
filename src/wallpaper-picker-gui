@@ -505,6 +505,16 @@ class WallpaperPickerGUI(Adw.Application):
         self.preview_label.set_halign(Gtk.Align.CENTER)
         preview_group.add(self.preview_label)
         
+        # Multi-Monitor Preview Section
+        monitor_preview_group = Adw.PreferencesGroup(title="Monitor Preview")
+        box.append(monitor_preview_group)
+        
+        self.monitor_preview_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.monitor_preview_box.set_halign(Gtk.Align.CENTER)
+        monitor_preview_group.add(self.monitor_preview_box)
+        
+        self.update_monitor_previews()
+        
         # Audio Toggle
         audio_group = Adw.PreferencesGroup(title="Audio")
         box.append(audio_group)
@@ -562,6 +572,38 @@ class WallpaperPickerGUI(Adw.Application):
             self.preview_image.set_icon_name("video-x-generic-symbolic")
         
         self.preview_label.set_text(video_path.name)
+        self.update_monitor_previews()
+    
+    def update_monitor_previews(self):
+        """Update preview thumbnails for each monitor"""
+        while child := self.monitor_preview_box.get_first_child():
+            self.monitor_preview_box.remove(child)
+        
+        if not self.current_video:
+            return
+        
+        thumb = generate_thumbnail(self.current_video, (160, 90))
+        
+        for monitor in self.monitors:
+            preview_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            preview_box.set_halign(Gtk.Align.CENTER)
+            
+            pic = Gtk.Picture()
+            pic.set_size_request(120, 68)
+            if thumb:
+                pic.set_filename(thumb)
+            else:
+                pic.set_icon_name("video-x-generic-symbolic")
+            
+            label = Gtk.Label()
+            name = monitor.get("name", "Unknown")
+            res = f"{monitor.get('width', 0)}x{monitor.get('height', 0)}"
+            label.set_markup(f"<b>{name}</b>\n{res}")
+            label.set_halign(Gtk.Align.START)
+            
+            preview_box.append(pic)
+            preview_box.append(label)
+            self.monitor_preview_box.append(preview_box)
     
     def on_apply(self, button):
         """Apply the selected wallpaper"""

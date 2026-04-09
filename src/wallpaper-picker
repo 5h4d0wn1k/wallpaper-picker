@@ -525,16 +525,19 @@ set_wallpaper_all_scaled() {
     add_to_history "$video"
 }
 
+is_video_file() {
+    local file="$1"
+    local ext="${file##*.}"
+    ext="${ext,,}"
+    [[ "$ext" == "mp4" || "$ext" == "webm" || "$ext" == "mkv" || "$ext" == "avi" || "$ext" == "mov" || "$ext" == "m4v" ]]
+}
+
 set_wallpaper_spanning() {
     local video="$1"
     local json="$2"
     
-    local ext="${video##*.}"
-    ext="${ext,,}"
-    
-    if [[ "$ext" == "mp4" || "$ext" == "webm" || "$ext" == "mkv" ]]; then
-        echo -e "${INFO}Video spanning is complex. Setting scaled on all monitors instead.${C_RESET}"
-        set_wallpaper_all_scaled "$video" "$json"
+    if is_video_file "$video"; then
+        set_video_spanning "$video" "$json"
         return
     fi
     
@@ -563,6 +566,94 @@ set_wallpaper_spanning() {
     done
     
     set_scaled_images "$json" "$cache_dir"
+    
+    CURRENT_WALLPAPER="$video"
+    save_state
+    add_to_history "$video"
+}
+
+set_video_spanning() {
+    local video="$1"
+    local json="$2"
+    
+    local cache_dir="${CACHE_DIR}/spanning"
+    mkdir -p "$cache_dir"
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    local total_width=0
+    local total_height=0
+    local min_x=0
+    local min_y=0
+    
+    local i=0
+    while [[ $i -lt $monitor_count ]]; do
+        local width height x y
+        width=$(echo "$json" | jq -r ".[$i].width")
+        height=$(echo "$json" | jq -r ".[$i].height")
+        x=$(echo "$json" | jq -r ".[$i].x")
+        y=$(echo "$json" | jq -r ".[$i].y")
+        
+        ((total_width += width))
+        if ((height > total_height)); then
+            total_height=$height
+        fi
+        
+        if ((x < min_x)); then
+            min_x=$x
+        fi
+        if ((y < min_y)); then
+            min_y=$y
+        fi
+        
+        ((i++))
+    done
+    
+    echo -e "${INFO}Creating spanning video: ${total_width}x${total_height}${C_RESET}"
+    
+    local video_hash
+    video_hash=$(md5sum "$video" | cut -d' ' -f1)
+    local combined_video="${cache_dir}/combined_${video_hash}.mp4"
+    
+    if [[ ! -f "$combined_video" ]]; then
+        if command -v ffmpeg &>/dev/null; then
+            ffmpeg -y -stream_loop -1 -i "$video" \
+                -vf "scale=${total_width}:${total_height}:force_original_aspect_ratio=increase,crop=${total_width}:${total_height}" \
+                -c:v libmpv_lavc -c:a copy \
+                -shortest "$combined_video" 2>/dev/null
+        fi
+    fi
+    
+    if [[ ! -f "$combined_video" ]]; then
+        combined_video="$video"
+    fi
+    
+    kill_all_wallpapers
+    
+    local audio_opt=""
+    if [[ "$ENABLE_AUDIO" != "yes" ]]; then
+        audio_opt="no-audio"
+    fi
+    
+    i=0
+    while [[ $i -lt $monitor_count ]]; do
+        local name width height x y
+        name=$(echo "$json" | jq -r ".[$i].name")
+        width=$(echo "$json" | jq -r ".[$i].width")
+        height=$(echo "$json" | jq -r ".[$i].height")
+        x=$(echo "$json" | jq -r ".[$i].x")
+        y=$(echo "$json" | jq -r ".[$i].y")
+        
+        ((x_offset = x - min_x))
+        
+        nohup mpvpaper -fp -o "loop-file=inf ${audio_opt} video-latency-hacks=yes" \
+            "$name" "$combined_video" &>/dev/null &
+        
+        echo -e "  ${INFO}${name}: ${width}x${height} at (${x}, ${y})${C_RESET}"
+        
+        ((i++))
+    done
     
     CURRENT_WALLPAPER="$video"
     save_state
