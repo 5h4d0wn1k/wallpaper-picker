@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-04-09
+
+### Added
+- **Video Spanning**: Video wallpapers can now span across multiple monitors
+- **Per-Monitor Preview**: GUI shows preview thumbnails for each monitor
+- **Improved GUI**: Better GTK4 event handling and drag-and-drop monitor layout
+- **Smart Random Action**: Added to desktop menu for quick access
+- **Multi-Distro Packages**: Added Homebrew (macOS) and Nix flake
+
+### Fixed
+- Command argument parsing edge cases
+- FZF interactive picker binding issues
+- Temp file cleanup using proper trap
+- GTK4 API compatibility (set_child, event controllers)
+
+### Changed
+- Improved install script with one-command installation
+- Better desktop menu integration with locales
+
 ## [2.1.0] - 2026-04-09
 
 ### Added
