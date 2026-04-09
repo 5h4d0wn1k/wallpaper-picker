@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-04-09
+
+### Added
+- **Memory Leak Prevention**: mpvpaper is now automatically restarted after 4 hours or when memory exceeds 200MB to prevent the known mpvpaper memory leak issue (#101)
+- **Black Flash Reduction**: Videos are preloaded before switching to minimize the black flash during wallpaper changes
+- **Improved Auto-Restore**: Added delay and retry mechanism for more reliable wallpaper restoration on startup
+- **File Validation**: Added proper read permission checks before setting wallpaper
+
+### Added (Configuration)
+- `MEMORY_LEAK_FIX`: Enable/disable periodic mpvpaper restart (default: yes)
+- `MPV_RESTART_HOURS`: Hours before automatic restart (default: 4)
+- `MPV_RESTART_MIN_MEM_MB`: Memory threshold in MB to trigger restart (default: 200)
+- `PRELOAD_WALLPAPERS`: Enable video preloading (default: yes)
+- `PRELOAD_DELAY`: Delay between kill and start (default: 0.5)
+- `AUTO_RESTORE_DELAY`: Delay before restoring on startup (default: 3)
+- `AUTO_RESTORE_RETRIES`: Number of restore attempts (default: 3)
+
+### Fixed
+- Wallpaper file permission validation
+- Cleanup handler now properly stops mpv monitor thread
+
 ## [2.2.0] - 2026-04-09
 
 ### Added

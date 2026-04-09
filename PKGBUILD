@@ -1,7 +1,7 @@
 # Maintainer: 5h4d0wn1k <https://github.com/5h4d0wn1k>
 
 pkgname=wallpaper-picker
-pkgver=2.2.0
+pkgver=2.3.0
 pkgrel=1
 pkgdesc="A sleek, feature-rich video wallpaper manager for Hyprland/Wayland"
 arch=('any')

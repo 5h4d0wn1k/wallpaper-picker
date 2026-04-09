@@ -12,7 +12,7 @@
 # A sleek, feature-rich video wallpaper manager for Arch Linux/Hyprland
 # 
 # Author:  shadowarch
-# Version: 2.2.0
+# Version: 2.3.0
 # License: MIT
 # Repository: https://github.com/5h4d0wn1k/wallpaper-picker
 #
@@ -23,7 +23,7 @@ shopt -s nullglob
 
 # Script metadata
 readonly SCRIPT_NAME="${0##*/}"
-readonly SCRIPT_VERSION="2.2.0"
+readonly SCRIPT_VERSION="2.3.0"
 readonly SCRIPT_AUTHOR="shadowarch"
 readonly SCRIPT_REPO="https://github.com/shadowarch/wallpaper-picker"
 
@@ -121,6 +121,8 @@ STARTUP_MODE="manual"
 
 CURRENT_WALLPAPER=""
 SLIDESHOW_PID=""
+MPV_START_TIME=""
+MPV_RESTART_PID=""
 
 # =============================================================================
 # Logging functions
@@ -150,6 +152,7 @@ cleanup() {
     if [[ -n "${SLIDESHOW_PID}" ]] && kill -0 "${SLIDESHOW_PID}" 2>/dev/null; then
         kill "${SLIDESHOW_PID}" 2>/dev/null || true
     fi
+    stop_mpv_monitor
 }
 
 trap cleanup EXIT INT TERM
@@ -321,7 +324,18 @@ PYWAL_BACKEND="theme"
 
 # Auto-restore
 AUTO_RESTORE="yes"
+AUTO_RESTORE_DELAY=3
+AUTO_RESTORE_RETRIES=3
 AUTO_RELOAD="yes"
+
+# Memory leak prevention - restart mpvpaper periodically
+MEMORY_LEAK_FIX="yes"
+MPV_RESTART_HOURS=4
+MPV_RESTART_MIN_MEM_MB=200
+
+# Preloading - reduce black flash during wallpaper switch
+PRELOAD_WALLPAPERS="yes"
+PRELOAD_DELAY=0.5
 
 # UI Configuration
 THUMBNAIL_ENABLED="yes"
@@ -561,7 +575,13 @@ set_wallpaper_all_scaled() {
     monitor_count=$(echo "$json" | jq length)
     local i=0
     
+    # Preload wallpaper to reduce black flash
+    if [[ "${PRELOAD_WALLPAPERS}" == "yes" ]]; then
+        preload_wallpaper "$video" &
+    fi
+    
     kill_all_wallpapers
+    sleep "${PRELOAD_DELAY:-0.5}"
     
     while [[ $i -lt $monitor_count ]]; do
         local name
@@ -575,6 +595,7 @@ set_wallpaper_all_scaled() {
         ((i++))
     done
     
+    start_mpv_monitor
     CURRENT_WALLPAPER="$video"
     save_state
     add_to_history "$video"
@@ -824,14 +845,25 @@ set_wallpaper() {
     local monitor
     monitor=$(resolve_monitor)
     
-    # Validate video exists
+    # Validate video exists and is readable
     if [[ ! -f "$video" ]]; then
         echo -e "${ERROR}Error:${C_RESET} File not found: ${video}"
         return 1
     fi
     
+    if [[ ! -r "$video" ]]; then
+        echo -e "${ERROR}Error:${C_RESET} File not readable: ${video}"
+        return 1
+    fi
+    
+    # Preload wallpaper to reduce black flash
+    if [[ "${PRELOAD_WALLPAPERS}" == "yes" ]]; then
+        preload_wallpaper "$video" &
+    fi
+    
     # Kill existing
     kill_wallpaper "$monitor"
+    sleep "${PRELOAD_DELAY:-0.5}"
     
     # Build options
     local audio_opts=""
@@ -840,6 +872,9 @@ set_wallpaper() {
     # Start new wallpaper
     mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
         "$monitor" "$video" &>/dev/null &
+    
+    # Start memory leak monitor
+    start_mpv_monitor
     
     CURRENT_WALLPAPER="$video"
     save_state
@@ -882,6 +917,117 @@ get_random_wallpaper() {
     
     local random_index=$((RANDOM % ${#videos[@]}))
     echo "${videos[$random_index]}"
+}
+
+# =============================================================================
+# Memory Leak Prevention - Periodic mpvpaper restart
+# =============================================================================
+
+get_mpv_memory_mb() {
+    local monitor="${1:-}"
+    local pid
+    
+    if [[ -n "$monitor" ]]; then
+        pid=$(pgrep -f "mpvpaper.*${monitor}" 2>/dev/null | head -1)
+    else
+        pid=$(pgrep -f "mpvpaper" 2>/dev/null | head -1)
+    fi
+    
+    if [[ -n "$pid" ]] && [[ -f "/proc/${pid}/status" ]]; then
+        local rss
+        rss=$(grep VmRSS "/proc/${pid}/status" 2>/dev/null | awk '{print $2}' || echo "0")
+        echo $((rss / 1024))
+    else
+        echo "0"
+    fi
+}
+
+check_mpv_restart_needed() {
+    [[ "${MEMORY_LEAK_FIX}" != "yes" ]] && return 1
+    [[ -z "${MPV_START_TIME}" ]] && return 1
+    
+    local hours_running=$(( ($(date +%s) - MPV_START_TIME) / 3600 ))
+    local mem_mb=$(get_mpv_memory_mb)
+    
+    if (( hours_running >= MPV_RESTART_HOURS )) || (( mem_mb >= MPV_RESTART_MIN_MEM_MB )); then
+        return 0
+    fi
+    return 1
+}
+
+restart_mpvpaper() {
+    local monitor="${1:-$(resolve_monitor)}"
+    local current_video
+    current_video=$(pgrep -a mpvpaper 2>/dev/null | grep -oE "[^ ]+\.(mp4|webm|mkv)" | head -1 || true)
+    
+    if [[ -z "$current_video" ]]; then
+        current_video=$(get_current_wallpaper)
+    fi
+    
+    log_info "Restarting mpvpaper on ${monitor} (memory leak prevention)"
+    
+    kill_wallpaper "$monitor"
+    sleep 0.5
+    
+    if [[ -n "$current_video" && -f "$current_video" ]]; then
+        local audio_opts=""
+        [[ "${ENABLE_AUDIO}" != "yes" ]] && audio_opts="no-audio"
+        
+        mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
+            "$monitor" "$current_video" &>/dev/null &
+        
+        MPV_START_TIME=$(date +%s)
+        log_info "mpvpaper restarted successfully"
+    fi
+}
+
+start_mpv_monitor() {
+    [[ "${MEMORY_LEAK_FIX}" != "yes" ]] && return
+    
+    MPV_START_TIME=$(date +%s)
+    
+    (
+        while true; do
+            sleep 300
+            if check_mpv_restart_needed; then
+                log_info "Memory leak check triggered restart"
+                restart_mpvpaper &>/dev/null
+            fi
+        done
+    ) &
+    MPV_RESTART_PID=$!
+}
+
+stop_mpv_monitor() {
+    [[ -n "${MPV_RESTART_PID}" ]] && kill "${MPV_RESTART_PID}" 2>/dev/null || true
+    MPV_RESTART_PID=""
+    MPV_START_TIME=""
+}
+
+# =============================================================================
+# Preload Wallpapers - Reduce black flash
+# =============================================================================
+
+preload_wallpaper() {
+    [[ "${PRELOAD_WALLPAPERS}" != "yes" ]] && return 0
+    [[ ! -f "$1" ]] && return 1
+    
+    local video="$1"
+    local cache_key
+    cache_key=$(echo "$video" | md5sum | cut -d' ' -f1)
+    local preload_cache="${CACHE_DIR}/preload_${cache_key}.mpv"
+    
+    if [[ -f "$preload_cache" ]] && [[ $(stat -c %s "$preload_cache" 2>/dev/null || echo "0") -gt 1000 ]]; then
+        return 0
+    fi
+    
+    timeout 2 mpv --quiet --no-terminal "$video" --o="$preload_cache" &>/dev/null || true
+    
+    if [[ -f "$preload_cache" ]]; then
+        ln -sf "$preload_cache" "${CACHE_DIR}/preload_current.mpv" 2>/dev/null || true
+    fi
+    
+    return 0
 }
 
 # =============================================================================
@@ -1002,11 +1148,32 @@ restore_wallpaper() {
     wallpaper=$(get_last_wallpaper)
     
     if [[ -n "$wallpaper" && -f "$wallpaper" ]]; then
-        set_wallpaper "$wallpaper"
-        echo -e "${INFO}Restored wallpaper: $(basename "$wallpaper")${C_RESET}"
-        return 0
+        local retries="${AUTO_RESTORE_RETRIES:-3}"
+        local delay="${AUTO_RESTORE_DELAY:-3}"
+        
+        echo -e "${INFO}Restoring wallpaper: $(basename "$wallpaper")${C_RESET}"
+        
+        # Wait for Hyprland to fully load
+        sleep "$delay"
+        
+        # Try multiple times with retries
+        for i in $(seq 1 "$retries"); do
+            if set_wallpaper "$wallpaper" 2>/dev/null; then
+                echo -e "${SUCCESS}Wallpaper restored successfully${C_RESET}"
+                return 0
+            fi
+            
+            if (( i < retries )); then
+                log_warn "Restore attempt ${i} failed, retrying..."
+                sleep 2
+            fi
+        done
+        
+        echo -e "${WARNING}Failed to restore wallpaper after ${retries} attempts${C_RESET}"
+        return 1
     fi
     
+    echo -e "${WARNING}No wallpaper to restore${C_RESET}"
     return 1
 }
 
@@ -1038,7 +1205,18 @@ set_per_monitor() {
         return 1
     fi
     
+    if [[ ! -r "$video" ]]; then
+        echo -e "${ERROR}File not readable: ${video}${C_RESET}"
+        return 1
+    fi
+    
+    # Preload wallpaper to reduce black flash
+    if [[ "${PRELOAD_WALLPAPERS}" == "yes" ]]; then
+        preload_wallpaper "$video" &
+    fi
+    
     kill_wallpaper "$monitor"
+    sleep "${PRELOAD_DELAY:-0.5}"
     
     local audio_opts=""
     [[ "${ENABLE_AUDIO}" != "yes" ]] && audio_opts="no-audio"
@@ -1046,6 +1224,7 @@ set_per_monitor() {
     mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
         "$monitor" "$video" &>/dev/null &
     
+    start_mpv_monitor
     add_to_history "$video"
     
     if [[ "${NOTIFICATIONS_ENABLED}" == "yes" ]]; then
