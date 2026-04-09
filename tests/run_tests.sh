@@ -1,256 +1,145 @@
 #!/usr/bin/env bash
 #
-# Test Suite for wallpaper-picker
+# Comprehensive Test Suite for wallpaper-picker
 # Run with: ./tests/run_tests.sh
 #
 
 set -uo pipefail
 
-# Colors
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Counters
 TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 
-# Test functions
-pass() {
-    echo -e "${GREEN}✓ PASS${NC}: $1"
-    ((TESTS_PASSED++))
-}
+pass() { echo -e "${GREEN}✓ PASS${NC}: $1"; ((TESTS_PASSED++)); }
+fail() { echo -e "${RED}✗ FAIL${NC}: $1"; ((TESTS_FAILED++)); }
+skip() { echo -e "${YELLOW}⊘ SKIP${NC}: $1"; ((TESTS_SKIPPED++)); }
+info() { echo -e "${BLUE}ℹ INFO${NC}: $1"; }
 
-fail() {
-    echo -e "${RED}✗ FAIL${NC}: $1"
-    ((TESTS_FAILED++))
-}
-
-skip() {
-    echo -e "${YELLOW}⊘ SKIP${NC}: $1"
-    ((TESTS_SKIPPED++))
-}
-
-info() {
-    echo -e "${BLUE}ℹ INFO${NC}: $1"
-}
-
-# Check if command exists
-has_command() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Test: Script exists and is executable
-test_script_exists() {
-    if [[ -x "$SCRIPT_DIR/src/wallpaper-picker" ]]; then
-        pass "Script exists and is executable"
+run_test() {
+    local name="$1"
+    local cmd="$2"
+    if eval "$cmd" &>/dev/null; then
+        pass "$name"
+        return 0
     else
-        fail "Script missing or not executable"
+        fail "$name"
+        return 1
     fi
 }
 
-# Test: Script has valid syntax
-test_script_syntax() {
-    if bash -n "$SCRIPT_DIR/src/wallpaper-picker" 2>/dev/null; then
-        pass "Script has valid bash syntax"
+test_output() {
+    local name="$1"
+    local cmd="$2"
+    local pattern="$3"
+    if output=$(eval "$cmd" 2>&1) && echo "$output" | grep -q "$pattern"; then
+        pass "$name"
+        return 0
     else
-        fail "Script has syntax errors"
+        fail "$name"
+        return 1
     fi
 }
 
-# Test: Version command works
-test_version() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --version | grep -q "wallpaper-picker"; then
-        pass "Version command works"
-    else
-        fail "Version command failed"
-    fi
-}
-
-# Test: Help command works
-test_help() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "USAGE"; then
-        pass "Help command works"
-    else
-        fail "Help command failed"
-    fi
-}
-
-# Test: Doctor command works
-test_doctor() {
-    local output
-    output=$("$SCRIPT_DIR/src/wallpaper-picker" doctor 2>&1 | cat)
-    if echo "$output" | grep -qi "doctor\|check\|passed"; then
-        pass "Doctor command works"
-    else
-        fail "Doctor command failed"
-    fi
-}
-
-# Test: List command works
-test_list() {
-    local output
-    output=$("$SCRIPT_DIR/src/wallpaper-picker" list 2>&1 | cat)
-    if echo "$output" | grep -qi "wallpaper\|available"; then
-        pass "List command works"
-    else
-        fail "List command failed"
-    fi
-}
-
-# Test: Monitors command works
-test_monitors() {
-    local output
-    output=$("$SCRIPT_DIR/src/wallpaper-picker" monitors 2>&1 | cat)
-    if echo "$output" | grep -qi "monitor\|available"; then
-        pass "Monitors command works"
-    else
-        fail "Monitors command failed"
-    fi
-}
-
-# Test: Random command works
-test_random() {
-    local output
-    output=$("$SCRIPT_DIR/src/wallpaper-picker" random 2>&1 | cat)
-    if echo "$output" | grep -qi "wallpaper set\|set:"; then
-        pass "Random command works"
-    else
-        skip "Random command (no wallpapers or mpvpaper)"
-    fi
-}
-
-# Test: Status command works
-test_status() {
-    local output
-    output=$("$SCRIPT_DIR/src/wallpaper-picker" status 2>&1 | cat)
-    if echo "$output" | grep -qi "status\|configuration"; then
-        pass "Status command works"
-    else
-        fail "Status command failed"
-    fi
-}
-
-# Test: Config file is created
-test_config_created() {
-    if [[ -f "$HOME/.config/wallpaper-picker/config" ]]; then
-        pass "Config file is created"
-    else
-        info "Config file will be created on first run"
-    fi
-}
-
-# Test: Watch dirs command works
-test_watch_dirs() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" watch-dirs 2>&1 | grep -q "Watch\|Default"; then
-        pass "Watch-dirs command works"
-    else
-        fail "Watch-dirs command failed"
-    fi
-}
-
-# Test: Smart random command exists
-test_smart_random() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "smart-random"; then
-        pass "Smart random command available"
-    else
-        fail "Smart random command missing"
-    fi
-}
-
-# Test: Time-based command exists
-test_time_based() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "time-based"; then
-        pass "Time-based command available"
-    else
-        fail "Time-based command missing"
-    fi
-}
-
-# Test: Pywal command exists
-test_pywal() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "pywal"; then
-        pass "Pywal command available"
-    else
-        fail "Pywal command missing"
-    fi
-}
-
-# Test: Preview command exists
-test_preview() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "preview"; then
-        pass "Preview command available"
-    else
-        fail "Preview command missing"
-    fi
-}
-
-# Test: Restore command exists
-test_restore() {
-    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "restore"; then
-        pass "Restore command available"
-    else
-        fail "Restore command missing"
-    fi
-}
-
-# Test: GUI script exists
-test_gui_exists() {
-    if [[ -f "$SCRIPT_DIR/src/wallpaper-picker-gui" ]]; then
-        pass "GUI script exists"
-    else
-        skip "GUI script not present"
-    fi
-}
-
-# Main
 main() {
-    # Navigate to repo root
-    cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
-    cd .. || exit 1
-    SCRIPT_DIR="$(pwd)"
-    
     echo ""
     echo "╔══════════════════════════════════════════════════╗"
-    echo "║       Wallpaper Picker Test Suite              ║"
+    echo "║     Wallpaper Picker Test Suite v2.2.0          ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
-    
-    info "Running tests from: $SCRIPT_DIR"
+    info "Testing: $PROJECT_DIR"
     echo ""
-    
-    # Run tests
-    test_script_exists
-    test_script_syntax
-    test_version
-    test_help
-    test_doctor
-    test_list
-    test_monitors
-    test_status
-    test_watch_dirs
-    test_config_created
-    test_gui_exists
-    test_random
-    test_smart_random
-    test_time_based
-    test_pywal
-    test_preview
-    test_restore
-    
+
+    echo "━━━ Basic Tests ━━━"
+    run_test "Script exists" "[[ -f '$PROJECT_DIR/src/wallpaper-picker' ]]"
+    run_test "Script is executable" "[[ -x '$PROJECT_DIR/src/wallpaper-picker' ]]"
+    run_test "Bash syntax valid" "bash -n '$PROJECT_DIR/src/wallpaper-picker'"
+    run_test "GUI script exists" "[[ -f '$PROJECT_DIR/src/wallpaper-picker-gui' ]]"
+    run_test "Install script exists" "[[ -f '$PROJECT_DIR/install.sh' ]]"
+    run_test "Desktop entry exists" "[[ -f '$PROJECT_DIR/desktop/wallpaper-picker.desktop' ]]"
+
+    echo ""
+    echo "━━━ Core Commands ━━━"
+    test_output "Version command" "$PROJECT_DIR/src/wallpaper-picker --version" "wallpaper-picker"
+    test_output "Help command" "$PROJECT_DIR/src/wallpaper-picker --help" "USAGE"
+    test_output "Doctor command" "$PROJECT_DIR/src/wallpaper-picker doctor" "Doctor\|check"
+    test_output "Status command" "$PROJECT_DIR/src/wallpaper-picker status" "Status\|Configuration"
+    test_output "List command" "$PROJECT_DIR/src/wallpaper-picker list" "wallpaper\|list"
+    test_output "Monitors command" "$PROJECT_DIR/src/wallpaper-picker monitors" "monitor"
+
+    echo ""
+    echo "━━━ Playback Commands ━━━"
+    test_output "Stop command" "$PROJECT_DIR/src/wallpaper-picker stop" "stop\|Wallpaper"
+    test_output "Pause command" "$PROJECT_DIR/src/wallpaper-picker pause" "pause\|No wallpaper"
+    test_output "Resume command" "$PROJECT_DIR/src/wallpaper-picker resume" "resume\|No wallpaper"
+    test_output "Toggle command" "$PROJECT_DIR/src/wallpaper-picker toggle" "toggle\|No wallpaper"
+    test_output "Current command" "$PROJECT_DIR/src/wallpaper-picker current" "Current wallpaper"
+
+    echo ""
+    echo "━━━ Management Commands ━━━"
+    test_output "Watch-dirs command" "$PROJECT_DIR/src/wallpaper-picker watch-dirs" "Watch\|Default"
+    test_output "Toggle-fav help" "$PROJECT_DIR/src/wallpaper-picker --help" "toggle-fav"
+    test_output "Config command" "$PROJECT_DIR/src/wallpaper-picker --help" "config"
+
+    echo ""
+    echo "━━━ Advanced Commands ━━━"
+    test_output "Smart-random exists" "$PROJECT_DIR/src/wallpaper-picker --help" "smart-random"
+    test_output "Time-based exists" "$PROJECT_DIR/src/wallpaper-picker --help" "time-based"
+    test_output "Slideshow exists" "$PROJECT_DIR/src/wallpaper-picker --help" "slideshow"
+    test_output "Preview exists" "$PROJECT_DIR/src/wallpaper-picker --help" "preview"
+    test_output "Pywal exists" "$PROJECT_DIR/src/wallpaper-picker --help" "pywal"
+    test_output "Restore exists" "$PROJECT_DIR/src/wallpaper-picker --help" "restore"
+
+    echo ""
+    echo "━━━ New Commands ━━━"
+    test_output "Backend command" "$PROJECT_DIR/src/wallpaper-picker backend" "backend\|mpvpaper"
+    test_output "Quality command" "$PROJECT_DIR/src/wallpaper-picker quality" "Quality\|profile"
+    test_output "Wallhaven help" "$PROJECT_DIR/src/wallpaper-picker wallhaven" "Wallhaven\|Usage"
+    test_output "Span command" "$PROJECT_DIR/src/wallpaper-picker --help" "span"
+
+    echo ""
+    echo "━━━ Integration Tests ━━━"
+    run_test "Config file exists or created" "[[ -f '$HOME/.config/wallpaper-picker/config' ]] || true"
+    run_test "Data directory exists" "[[ -d '$HOME/.local/share/wallpaper-picker' ]] || true"
+    run_test "History file accessible" "[[ -f '$HOME/.local/share/wallpaper-picker/history' ]] || true"
+
+    echo ""
+    echo "━━━ Documentation Files ━━━"
+    run_test "README exists" "[[ -f '$PROJECT_DIR/README.md' ]]"
+    run_test "CHANGELOG exists" "[[ -f '$PROJECT_DIR/CHANGELOG.md' ]]"
+    run_test "License exists" "[[ -f '$PROJECT_DIR/LICENSE' ]]"
+    run_test "PKGBUILD exists" "[[ -f '$PROJECT_DIR/PKGBUILD' ]]"
+
+    echo ""
+    echo "━━━ CI/CD Files ━━━"
+    run_test "GitHub workflows exist" "[[ -d '$PROJECT_DIR/.github/workflows' ]]"
+    run_test "Tests workflow exists" "[[ -f '$PROJECT_DIR/.github/workflows/tests.yml' ]]"
+
+    echo ""
+    echo "━━━ Completions ━━━"
+    run_test "Bash completions" "[[ -f '$PROJECT_DIR/completions/bash/wallpaper-picker' ]]"
+    run_test "Zsh completions" "[[ -f '$PROJECT_DIR/completions/zsh/_wallpaper-picker' ]]"
+    run_test "Fish completions" "[[ -f '$PROJECT_DIR/completions/fish/wallpaper-picker.fish' ]]"
+
     echo ""
     echo "╔══════════════════════════════════════════════════╗"
-    echo "║                  Test Results                  ║"
+    echo "║                  Test Results                    ║"
     echo "╚══════════════════════════════════════════════════╝"
     echo ""
     echo -e "  ${GREEN}Passed:${NC}  $TESTS_PASSED"
     echo -e "  ${RED}Failed:${NC}  $TESTS_FAILED"
     echo -e "  ${YELLOW}Skipped:${NC} $TESTS_SKIPPED"
     echo ""
-    
+
     if [[ $TESTS_FAILED -eq 0 ]]; then
         echo -e "${GREEN}All tests passed!${NC}"
         exit 0

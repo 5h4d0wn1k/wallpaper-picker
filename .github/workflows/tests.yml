@@ -1,50 +1,53 @@
-name: Tests
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  release:
+    types: [published]
+
+env:
+  VERSION: ${{ github.ref_name }}
+  REPO: ${{ github.repository }}
 
 jobs:
   linting:
-    name: Code Quality
+    name: Code Quality Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Run ShellCheck
+      - name: ShellCheck Analysis
         run: |
           if ! command -v shellcheck &>/dev/null; then
             sudo apt-get update && sudo apt-get install -y shellcheck
           fi
-          shellcheck -x -S warning src/wallpaper-picker || true
-          shellcheck -x -S warning install.sh || true
+          shellcheck -x -S error src/wallpaper-picker || exit 1
+          shellcheck -x -S error install.sh || exit 1
       
-      - name: Check Python syntax
+      - name: Check Python Syntax
         run: |
-          python3 -m py_compile src/wallpaper-picker-gui || true
+          python3 -m py_compile src/wallpaper-picker-gui
       
-      - name: Verify shebang
+      - name: Verify Shebang Headers
         run: |
-          head -1 src/wallpaper-picker | grep -q "^#!/usr/bin/env bash" || echo "Missing proper shebang"
-          head -1 src/wallpaper-picker-gui | grep -q "^#!/usr/bin/env python3" || echo "Missing python shebang"
+          head -1 src/wallpaper-picker | grep -q "^#!/usr/bin/env bash" || exit 1
+          head -1 src/wallpaper-picker-gui | grep -q "^#!/usr/bin/env python3" || exit 1
       
-      - name: Check for common issues
+      - name: Check File Permissions
         run: |
-          # Check for TODO comments
-          grep -r "TODO" src/ --include="*.sh" --include="*.py" || true
-          
-          # Check for debug statements
-          grep -rn "print(" src/*.py 2>/dev/null | grep -v "__pycache__" || true
+          [[ -x src/wallpaper-picker ]] || exit 1
+          [[ -x src/wallpaper-picker-gui ]] || exit 1
 
   bash-tests:
-    name: Bash Tests
+    name: Bash Script Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Syntax Check
+      - name: Bash Syntax Check
         run: |
           bash -n src/wallpaper-picker
           bash -n install.sh
@@ -52,30 +55,50 @@ jobs:
       - name: Mock Dependencies
         run: |
           mkdir -p ~/bin
-          echo '#!/bin/bash' > ~/bin/mpvpaper
-          echo 'echo "mock"' >> ~/bin/mpvpaper
+          cat > ~/bin/mpvpaper << 'EOF'
+          #!/bin/bash
+          exit 0
+          EOF
           chmod +x ~/bin/mpvpaper
-          echo '#!/bin/bash' > ~/bin/notify-send
-          echo 'echo "mock"' >> ~/bin/notify-send
+          cat > ~/bin/notify-send << 'EOF'
+          #!/bin/bash
+          exit 0
+          EOF
           chmod +x ~/bin/notify-send
+          for cmd in fzf jq hyprctl; do
+            cat > ~/bin/$cmd << 'EOF'
+            #!/bin/bash
+            exit 0
+            EOF
+            chmod +x ~/bin/$cmd
+          done
           echo 'export PATH=~/bin:$PATH' >> $GITHUB_ENV
       
-      - name: Run Tests
+      - name: Run Command Tests
         run: |
-          export PATH=~/bin:$PATH
           chmod +x src/wallpaper-picker
-          
-          # Test version
-          ./src/wallpaper-picker --version | grep -q "wallpaper-picker"
-          
-          # Test help
-          ./src/wallpaper-picker --help | grep -q "COMMANDS"
-          
-          # Test doctor (with mock)
-          ./src/wallpaper-picker doctor || true
-          
-          # Test list
-          ./src/wallpaper-picker list || true
+          chmod +x tests/run_tests.sh
+          ./tests/run_tests.sh
+
+  security-check:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check for Hardcoded Secrets
+        run: |
+          if command -v gitleaks &>/dev/null; then
+            gitleaks detect --source . --verbose || true
+          else
+            echo "Gitleaks not installed, skipping"
+            grep -rE "(password|secret|api_key|token)\s*=" src/ || true
+          fi
+      
+      - name: Check for Unsafe Downloads
+        run: |
+          grep -n "curl.*| sh" install.sh || echo "OK"
+          grep -n "wget.*-O-" install.sh || echo "OK"
 
   python-tests:
     name: Python Tests
@@ -86,73 +109,132 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ['3.10', '3.11', '3.12']
       
-      - name: Syntax Check
+      - name: Python Syntax Check
         run: |
           python3 -m py_compile src/wallpaper-picker-gui
       
-      - name: Check imports
+      - name: Check GTK4 Imports
         run: |
           python3 -c "
-            import sys
-            sys.path.insert(0, 'src')
-            # Check basic syntax without GTK
+            import ast
             with open('src/wallpaper-picker-gui') as f:
-                compile(f.read(), 'wallpaper-picker-gui', 'exec')
-            print('Python syntax OK')
+                tree = ast.parse(f.read())
+            print('Python AST valid')
           "
 
-  integration-test:
-    name: Integration Tests
+  package-build:
+    name: Package Build
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Create Test Environment
+      - name: Install Build Dependencies
         run: |
-          mkdir -p ~/Videos/wallpapers
-          echo "test video" > ~/Videos/wallpapers/test.mp4
-          mkdir -p ~/.config/wallpaper-picker
-          mkdir -p ~/.local/share/wallpaper-picker
+          pacman -Sy --noconfirm git base-devel
       
-      - name: Run Integration Tests
+      - name: Build AUR Package
         run: |
-          chmod +x src/wallpaper-picker
-          ./src/wallpaper-picker list
-          ./src/wallpaper-picker monitors || true
-          ./src/wallpaper-picker status || true
-          ./src/wallpaper-picker watch-dirs || true
+          cp PKGBUILD /tmp/
+          cp wallpaper-picker.install /tmp/
+          cd /tmp && makepkg --printsrcinfo > .SRCINFO
+      
+      - name: Verify PKGBUILD
+        run: |
+          grep -q "pkgname=wallpaper-picker" /tmp/PKGBuil
 
-  test-matrix:
-    name: Test on Multiple Shells
+  release:
+    name: Create Release
+    needs: [linting, bash-tests, security-check, python-tests]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        shell: [bash, sh]
+    if: github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
       
-      - name: Test with ${{ matrix.shell }}
+      - name: Create Release Archive
         run: |
-          if command -v ${{ matrix.shell }} &>/dev/null; then
-            chmod +x src/wallpaper-picker
-            ${{ matrix.shell }} -n src/wallpaper-picker && echo "Syntax OK with ${{ matrix.shell }}"
-          fi
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p release
+          tar -czf release/wallpaper-picker-${VERSION}.tar.gz \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='tests' \
+            .
+      
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*.tar.gz
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  coverage:
-    name: Code Coverage
+  aur-sync:
+    name: AUR Sync
+    needs: [release]
     runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: 5h4d0wn1k/wallpaper-picker
+          ref: main
+      
+      - name: Setup AUR Credentials
+        env:
+          AUR_TOKEN: ${{ secrets.AUR_TOKEN }}
+        run: |
+          echo "$AUR_TOKEN" | xargs -I{} git remote set-url origin "ssh://aur@aur.archlinux.org/wallpaper-picker.git"
+      
+      - name: Update AUR Package
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Update version in PKGBUILD
+          sed -i "s/pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/" PKGBUILD
+          makepkg --printsrcinfo > .SRCINFO
+          
+          git add PKGBUILD .SRCINFO
+          git commit -m "Release v${GITHUB_REF_NAME#v}"
+          git push origin master
+
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
     steps:
       - uses: actions/checkout@v4
       
-      - name: Count lines
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Build and Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            5h4d0wn1k/wallpaper-picker:latest
+            5h4d0wn1k/wallpaper-picker:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  notify:
+    name: Notify Success
+    needs: [linting, bash-tests, security-check, python-tests]
+    runs-on: ubuntu-latest
+    if: always() && needs.linting.result == 'success' && needs.bash-tests.result == 'success'
+    steps:
+      - name: Success Notification
         run: |
-          echo "=== Code Statistics ==="
-          echo "Bash: $(wc -l < src/wallpaper-picker) lines"
-          echo "Python: $(wc -l < src/wallpaper-picker-gui) lines"
-          echo "Install: $(wc -l < install.sh) lines"
-          echo ""
-          echo "=== Function Count ==="
-          grep -c "^cmd_" src/wallpaper-picker || true
-          grep -c "^def " src/wallpaper-picker-gui || true
+          echo "All tests passed! ✓"

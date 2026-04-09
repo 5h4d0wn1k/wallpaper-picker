@@ -98,6 +98,20 @@ NOTIFICATIONS_ENABLED="yes"
 PREVIEW_ENABLED="yes"
 PREVIEW_TIMEOUT=3
 
+# Performance configuration
+BATTERY_AWARE="yes"
+BATTERY_QUALITY="low"
+BATTERY_FPS=15
+BATTERY_SCALE=0.75
+AC_QUALITY="high"
+AC_FPS=30
+AC_SCALE=1.0
+PAUSE_ON_FULLSCREEN="yes"
+PAUSE_ON_BATTERY="no"
+
+# Backend configuration (auto, mpvpaper, swww, hyprpaper, swaybg)
+WALLPAPER_BACKEND="auto"
+
 # Startup configuration
 STARTUP_MODE="manual"
 
@@ -146,6 +160,47 @@ trap cleanup EXIT INT TERM
 
 is_command() {
     command -v "$1" >/dev/null 2>&1
+}
+
+is_on_battery() {
+    if [[ -f /sys/class/power_supply/BAT0/status ]]; then
+        local status
+        status=$(cat /sys/class/power_supply/BAT0/status 2>/dev/null || echo "Unknown")
+        [[ "$status" == "Discharging" ]]
+        return $?
+    fi
+    return 1
+}
+
+get_quality_profile() {
+    if [[ "${BATTERY_AWARE}" != "yes" ]]; then
+        echo "high"
+        return
+    fi
+    if is_on_battery; then
+        echo "${BATTERY_QUALITY}"
+    else
+        echo "${AC_QUALITY}"
+    fi
+}
+
+detect_wallpaper_backend() {
+    local file="${1:-}"
+    local ext="${file##*.}"
+    ext="${ext,,}"
+    
+    case "$ext" in
+        mp4|webm|mkv|avi|mov|m4v|gif)
+            is_command mpvpaper && echo "mpvpaper" && return
+            is_command mpv && echo "mpv" && return
+            ;;
+        *)
+            is_command swww && echo "swww" && return
+            is_command hyprpaper && echo "hyprpaper" && return
+            is_command swaybg && echo "swaybg" && return
+            ;;
+    esac
+    echo "mpvpaper"
 }
 
 require_command() {
@@ -1519,6 +1574,148 @@ cmd_stop() {
     echo -e "${INFO}Wallpaper stopped${C_RESET}"
 }
 
+cmd_pause() {
+    local monitor
+    monitor=$(resolve_monitor)
+    local pid
+    pid=$(pgrep -f "mpvpaper.*${monitor}" 2>/dev/null | head -1)
+    if [[ -n "$pid" ]]; then
+        kill -STOP "$pid" 2>/dev/null && echo -e "${INFO}Wallpaper paused${C_RESET}"
+    else
+        echo -e "${INFO}No wallpaper running${C_RESET}"
+    fi
+}
+
+cmd_resume() {
+    local monitor
+    monitor=$(resolve_monitor)
+    local pid
+    pid=$(pgrep -f "mpvpaper.*${monitor}" 2>/dev/null | head -1)
+    if [[ -n "$pid" ]]; then
+        kill -CONT "$pid" 2>/dev/null && echo -e "${INFO}Wallpaper resumed${C_RESET}"
+    else
+        echo -e "${INFO}No wallpaper to resume${C_RESET}"
+    fi
+}
+
+cmd_toggle() {
+    local monitor
+    monitor=$(resolve_monitor)
+    local pid
+    pid=$(pgrep -f "mpvpaper.*${monitor}" 2>/dev/null | head -1)
+    if [[ -n "$pid" ]]; then
+        if ps -p "$pid" -o state= 2>/dev/null | grep -q T; then
+            kill -CONT "$pid" && echo -e "${INFO}Wallpaper resumed${C_RESET}"
+        else
+            kill -STOP "$pid" && echo -e "${INFO}Wallpaper paused${C_RESET}"
+        fi
+    else
+        echo -e "${INFO}No wallpaper running${C_RESET}"
+    fi
+}
+
+cmd_backend() {
+    local backend="${1:-}"
+    if [[ -z "$backend" ]]; then
+        echo -e "${C_CYAN}Current backend:${C_RESET} ${WALLPAPER_BACKEND}"
+        echo ""
+        echo -e "${C_CYAN}Available backends:${C_RESET}"
+        is_command mpvpaper && echo "  ${C_GREEN}mpvpaper${C_RESET} - Video wallpaper (mp4, webm, mkv, gif)"
+        is_command swww && echo "  ${C_GREEN}swww${C_RESET} - Animated wallpaper with transitions"
+        is_command hyprpaper && echo "  ${C_GREEN}hyprpaper${C_RESET} - Fast wallpaper with IPC"
+        is_command swaybg && echo "  ${C_GREEN}swaybg${C_RESET} - Simple wallpaper setter"
+        echo ""
+        echo "  auto - Automatically select best backend"
+    else
+        case "$backend" in
+            auto|mpvpaper|swww|hyprpaper|swaybg)
+                WALLPAPER_BACKEND="$backend"
+                save_config "WALLPAPER_BACKEND" "$backend"
+                echo -e "${SUCCESS}Backend set to: ${backend}${C_RESET}"
+                ;;
+            *)
+                echo -e "${ERROR}Unknown backend: ${backend}${C_RESET}"
+                echo "Available: auto, mpvpaper, swww, hyprpaper, swaybg"
+                return 1
+                ;;
+        esac
+    fi
+}
+
+cmd_quality() {
+    local profile
+    profile=$(get_quality_profile)
+    echo -e "${C_CYAN}Quality Profile:${C_RESET} ${profile}"
+    echo ""
+    if [[ "${BATTERY_AWARE}" == "yes" ]]; then
+        if is_on_battery; then
+            echo -e "  ${C_YELLOW}Running on battery${C_RESET}"
+        else
+            echo -e "  ${C_GREEN}Running on AC power${C_RESET}"
+        fi
+        echo "  Battery FPS:    ${BATTERY_FPS}"
+        echo "  AC FPS:        ${AC_FPS}"
+        echo "  Battery Scale: ${BATTERY_SCALE}"
+        echo "  AC Scale:      ${AC_SCALE}"
+    else
+        echo "  Battery-aware mode is disabled"
+    fi
+}
+
+cmd_wallhaven() {
+    local query="${1:-}"
+    local action="${2:-}"
+    
+    if [[ -z "$query" ]]; then
+        echo -e "${C_BOLD}Wallhaven Search${C_RESET}"
+        echo ""
+        echo "Usage: wallpaper-picker wallhaven <search> [action]"
+        echo ""
+        echo -e "${C_CYAN}Examples:${C_RESET}"
+        echo "  wallpaper-picker wallhaven 'nature mountains'"
+        echo "  wallpaper-picker wallhaven 'cyberpunk' download"
+        return 0
+    fi
+    
+    echo -e "${INFO}Searching Wallhaven for: ${query}${C_RESET}"
+    
+    local encoded_query
+    encoded_query=$(echo "$query" | sed 's/ /+/g')
+    local api_url="https://wallhaven.cc/api/v1/search?q=${encoded_query}&categories=111&purity=100&sorting=random"
+    
+    local response
+    response=$(curl -s "$api_url" 2>/dev/null)
+    
+    if [[ -z "$response" ]] || ! echo "$response" | jq -e '.data' &>/dev/null; then
+        echo -e "${ERROR}Failed to search Wallhaven${C_RESET}"
+        return 1
+    fi
+    
+    local count
+    count=$(echo "$response" | jq '.data | length' 2>/dev/null || echo 0)
+    
+    if [[ "$count" == "null" ]] || [[ "$count" -eq 0 ]]; then
+        echo -e "${INFO}No results found${C_RESET}"
+        return 0
+    fi
+    
+    echo -e "${INFO}Found ${count} results${C_RESET}"
+    
+    if [[ "$action" == "download" ]]; then
+        local download_url filename dest
+        download_url=$(echo "$response" | jq -r '.data[0].path' 2>/dev/null)
+        filename=$(basename "$download_url")
+        dest="${DEFAULT_WALLPAPER_DIR}/${filename}"
+        mkdir -p "${DEFAULT_WALLPAPER_DIR}"
+        
+        if curl -fsSL -o "$dest" "$download_url" 2>/dev/null; then
+            echo -e "${SUCCESS}Downloaded: ${filename}${C_RESET}"
+        else
+            echo -e "${ERROR}Failed to download${C_RESET}"
+        fi
+    fi
+}
+
 cmd_current() {
     local current
     current=$(get_current_wallpaper)
@@ -1774,6 +1971,9 @@ ${C_BOLD}COMMANDS:${C_RESET}
     ${C_GREEN}time-based${C_RESET}             Wallpaper based on time of day
     ${C_GREEN}slideshow${C_RESET} [SEC]       Start slideshow mode
     ${C_GREEN}stop${C_RESET}                  Stop current wallpaper
+    ${C_GREEN}pause${C_RESET}                  Pause wallpaper
+    ${C_GREEN}resume${C_RESET}                 Resume wallpaper
+    ${C_GREEN}toggle${C_RESET}                Toggle pause/resume
     ${C_GREEN}current${C_RESET}               Show current wallpaper
     ${C_GREEN}next${C_RESET}                  Next wallpaper
     ${C_GREEN}prev${C_RESET}                  Previous wallpaper
@@ -1784,8 +1984,11 @@ ${C_BOLD}COMMANDS:${C_RESET}
     ${C_GREEN}toggle-fav${C_RESET}            Toggle favorite status
     ${C_GREEN}preview${C_RESET} <FILE>        Preview wallpaper/ASCII art
     ${C_GREEN}pywal${C_RESET}                Generate colorscheme (requires pywal)
+    ${C_GREEN}wallhaven${C_RESET} <QUERY>     Search Wallhaven
     ${C_GREEN}restore${C_RESET}               Restore last wallpaper
     ${C_GREEN}set-monitor${C_RESET} <MON> <F> Set wallpaper on specific monitor
+    ${C_GREEN}backend${C_RESET} [NAME]       Set/query wallpaper backend
+    ${C_GREEN}quality${C_RESET}               Show quality profile
     ${C_GREEN}config${C_RESET}                Edit configuration
     ${C_GREEN}monitors${C_RESET}              List monitors
     ${C_GREEN}status${C_RESET}                 Detailed status
@@ -1801,10 +2004,17 @@ ${C_BOLD}OPTIONS:${C_RESET}
     -m, --monitor <NAME>    Target monitor
     -d, --dir <PATH>       Wallpaper directory
 
+${C_BOLD}BACKENDS:${C_RESET}
+    auto        - Automatically select best (default)
+    mpvpaper   - Video wallpaper (recommended)
+    swww       - Animated with transitions
+    hyprpaper  - Fast with IPC
+    swaybg     - Simple wallpaper
+
 ${C_BOLD}TUI SHORTCUTS (in fzf picker):${C_RESET}
     Enter                   Set wallpaper
     Ctrl+R                 Random wallpaper
-    Ctrl+S                 Smart random
+    Esc                    Exit
     Ctrl+D                 Toggle favorite
     Ctrl+P                 Toggle preview
 
@@ -1875,6 +2085,9 @@ main() {
         time-based)     cmd_time_based ;;
         slideshow)      cmd_slideshow "${1:-}" ;;
         stop)           cmd_stop ;;
+        pause)          cmd_pause ;;
+        resume)         cmd_resume ;;
+        toggle)         cmd_toggle ;;
         current)        cmd_current ;;
         next)           cmd_next ;;
         prev)           cmd_prev ;;
@@ -1897,6 +2110,9 @@ main() {
         pywal)          cmd_pywal ;;
         restore)        restore_wallpaper ;;
         set-monitor)    cmd_set_monitor "${1:-}" "${2:-}" ;;
+        backend)        cmd_backend "${1:-}" ;;
+        quality)        cmd_quality ;;
+        wallhaven|wh)   cmd_wallhaven "${1:-}" "${2:-}" ;;
         set)            set_wallpaper_from_stdin ;;
         help|"")        cmd_help ;;
         *)              echo -e "${ERROR}Unknown command:${C_RESET} $command"; cmd_help; exit 1 ;;
