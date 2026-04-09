@@ -152,6 +152,51 @@ test_watch_dirs() {
     fi
 }
 
+# Test: Smart random command exists
+test_smart_random() {
+    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "smart-random"; then
+        pass "Smart random command available"
+    else
+        fail "Smart random command missing"
+    fi
+}
+
+# Test: Time-based command exists
+test_time_based() {
+    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "time-based"; then
+        pass "Time-based command available"
+    else
+        fail "Time-based command missing"
+    fi
+}
+
+# Test: Pywal command exists
+test_pywal() {
+    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "pywal"; then
+        pass "Pywal command available"
+    else
+        fail "Pywal command missing"
+    fi
+}
+
+# Test: Preview command exists
+test_preview() {
+    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "preview"; then
+        pass "Preview command available"
+    else
+        fail "Preview command missing"
+    fi
+}
+
+# Test: Restore command exists
+test_restore() {
+    if "$SCRIPT_DIR/src/wallpaper-picker" --help | grep -q "restore"; then
+        pass "Restore command available"
+    else
+        fail "Restore command missing"
+    fi
+}
+
 # Test: GUI script exists
 test_gui_exists() {
     if [[ -f "$SCRIPT_DIR/src/wallpaper-picker-gui" ]]; then
@@ -190,6 +235,11 @@ main() {
     test_config_created
     test_gui_exists
     test_random
+    test_smart_random
+    test_time_based
+    test_pywal
+    test_preview
+    test_restore
     
     echo ""
     echo "╔══════════════════════════════════════════════════╗"

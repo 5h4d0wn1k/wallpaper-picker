@@ -260,6 +260,14 @@ TIME_BASED_FOLDERS="morning:06-12 afternoon:12-18 evening:18-22 night:22-06"
 SMART_RANDOM="yes"
 RECENT_HISTORY_SIZE=10
 
+# PyWal Integration
+PYWAL_ENABLED="no"
+PYWAL_BACKEND="theme"
+
+# Auto-restore
+AUTO_RESTORE="yes"
+AUTO_RELOAD="yes"
+
 # UI Configuration
 THUMBNAIL_ENABLED="yes"
 CACHE_THUMBNAILS="yes"
@@ -434,6 +442,143 @@ count_videos() {
 }
 
 # =============================================================================
+# PyWal Integration
+# =============================================================================
+
+run_pywal() {
+    local wallpaper="$1"
+    
+    if ! is_command wal; then
+        return 1
+    fi
+    
+    local ext="${wallpaper##*.}"
+    ext="${ext,,}"
+    
+    case "$ext" in
+        png|jpg|jpeg|gif|bmp)
+            wal -i "$wallpaper" --backend theme 2>/dev/null &
+            return 0
+            ;;
+        mp4|webm|mkv|avi|mov|m4v)
+            local temp_frame
+            temp_frame=$(mktemp --suffix=.png)
+            if ffmpeg -y -ss 00:00:01 -i "$wallpaper" -vframes 1 "$temp_frame" 2>/dev/null; then
+                wal -i "$temp_frame" --backend theme 2>/dev/null &
+                rm -f "$temp_frame"
+                return 0
+            fi
+            ;;
+    esac
+    
+    return 1
+}
+
+cmd_pywal() {
+    local current
+    current=$(get_current_wallpaper)
+    
+    if [[ -z "$current" ]]; then
+        echo -e "${ERROR}No wallpaper currently set${C_RESET}"
+        return 1
+    fi
+    
+    if ! is_command wal; then
+        echo -e "${ERROR}PyWal not installed${C_RESET}"
+        echo "  Install with: yay -S pywal"
+        return 1
+    fi
+    
+    echo -e "${INFO}Generating colorscheme from: $(basename "$current")${C_RESET}"
+    
+    if run_pywal "$current"; then
+        echo -e "${SUCCESS}Colorschemed generated!${C_RESET}"
+        echo "  Reload your terminal or run 'source ~/.cache/wal/colors.sh'"
+    else
+        echo -e "${ERROR}Failed to generate colorscheme${C_RESET}"
+        return 1
+    fi
+}
+
+# =============================================================================
+# Startup and Auto-reload
+# =============================================================================
+
+get_last_wallpaper() {
+    if [[ -f "${HISTORY_FILE}" ]]; then
+        tail -n 1 "${HISTORY_FILE}" | cut -d'|' -f2
+    fi
+}
+
+restore_wallpaper() {
+    local wallpaper
+    wallpaper=$(get_last_wallpaper)
+    
+    if [[ -n "$wallpaper" && -f "$wallpaper" ]]; then
+        set_wallpaper "$wallpaper"
+        echo -e "${INFO}Restored wallpaper: $(basename "$wallpaper")${C_RESET}"
+        return 0
+    fi
+    
+    return 1
+}
+
+watch_for_changes() {
+    local wallpaper_dir="$1"
+    local wallpaper_file
+    
+    while true; do
+        sleep 5
+        wallpaper_file=$(get_last_wallpaper)
+        
+        if [[ -n "$wallpaper_file" && ! -f "$wallpaper_file" ]]; then
+            echo -e "${WARNING}Wallpaper file missing, switching to next...${C_RESET}"
+            cmd_next
+        fi
+    done 2>/dev/null &
+}
+
+# =============================================================================
+# Multi-monitor specific wallpapers
+# =============================================================================
+
+set_per_monitor() {
+    local monitor="$1"
+    local video="$2"
+    
+    if [[ ! -f "$video" ]]; then
+        echo -e "${ERROR}File not found: ${video}${C_RESET}"
+        return 1
+    fi
+    
+    kill_wallpaper "$monitor"
+    
+    local audio_opts=""
+    [[ "${ENABLE_AUDIO}" != "yes" ]] && audio_opts="no-audio"
+    
+    mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
+        "$monitor" "$video" &>/dev/null &
+    
+    add_to_history "$video"
+    
+    if [[ "${NOTIFICATIONS_ENABLED}" == "yes" ]]; then
+        notify-send "Wallpaper" "Set on ${monitor}: $(basename "$video")" -t 2000 2>/dev/null || true
+    fi
+}
+
+cmd_set_monitor() {
+    local monitor="${1:-}"
+    local video="${2:-}"
+    
+    if [[ -z "$monitor" || -z "$video" ]]; then
+        echo -e "${ERROR}Usage: wallpaper-picker set-monitor <MONITOR> <VIDEO>${C_RESET}"
+        return 1
+    fi
+    
+    set_per_monitor "$monitor" "$video"
+}
+
+# =============================================================================
 # State management
 # =============================================================================
 
@@ -447,6 +592,7 @@ save_state() {
     "current": "${current}",
     "monitor": "$(resolve_monitor)",
     "timestamp": "${timestamp}",
+    "version": "${SCRIPT_VERSION}"
     "version": "${SCRIPT_VERSION}"
 }
 EOF
@@ -1184,18 +1330,18 @@ cmd_install_gui() {
 cmd_help() {
     cat <<EOF
 ${C_BOLD}wallpaper-picker${C_RESET} v${SCRIPT_VERSION}
-A sleek video wallpaper manager for Arch Linux/Hyprland
+A sleek video wallpaper manager for Hyprland/Wayland
 
 ${C_BOLD}USAGE:${C_RESET}
     ${C_CYAN}wallpaper-picker${C_RESET} [COMMAND] [OPTIONS]
 
 ${C_BOLD}COMMANDS:${C_RESET}
-    ${C_GREEN}pick${C_RESET}                   Interactive TUI picker
+    ${C_GREEN}pick${C_RESET}                   Interactive TUI picker (fzf)
     ${C_GREEN}gui${C_RESET}                    Launch GTK4 GUI picker
     ${C_GREEN}browse${C_RESET}                 Browse any video file
     ${C_GREEN}random${C_RESET}                Set random wallpaper
-    ${C_GREEN}smart-random${C_RESET}           Random (avoid recent)
-    ${C_GREEN}time-based${C_RESET}             Wallpaper by time of day
+    ${C_GREEN}smart-random${C_RESET}           Random (avoid recently used)
+    ${C_GREEN}time-based${C_RESET}             Wallpaper based on time of day
     ${C_GREEN}slideshow${C_RESET} [SEC]       Start slideshow mode
     ${C_GREEN}stop${C_RESET}                  Stop current wallpaper
     ${C_GREEN}current${C_RESET}               Show current wallpaper
@@ -1206,7 +1352,10 @@ ${C_BOLD}COMMANDS:${C_RESET}
     ${C_GREEN}remove-dir${C_RESET} <PATH>      Remove watch directory
     ${C_GREEN}watch-dirs${C_RESET}             List watch directories
     ${C_GREEN}toggle-fav${C_RESET}            Toggle favorite status
-    ${C_GREEN}preview${C_RESET} <FILE>        Preview wallpaper
+    ${C_GREEN}preview${C_RESET} <FILE>        Preview wallpaper/ASCII art
+    ${C_GREEN}pywal${C_RESET}                Generate colorscheme (requires pywal)
+    ${C_GREEN}restore${C_RESET}               Restore last wallpaper
+    ${C_GREEN}set-monitor${C_RESET} <MON> <F> Set wallpaper on specific monitor
     ${C_GREEN}config${C_RESET}                Edit configuration
     ${C_GREEN}monitors${C_RESET}              List monitors
     ${C_GREEN}status${C_RESET}                 Detailed status
@@ -1222,15 +1371,28 @@ ${C_BOLD}OPTIONS:${C_RESET}
     -m, --monitor <NAME>    Target monitor
     -d, --dir <PATH>       Wallpaper directory
 
+${C_BOLD}TUI SHORTCUTS (in fzf picker):${C_RESET}
+    Enter                   Set wallpaper
+    Ctrl+R                 Random wallpaper
+    Ctrl+S                 Smart random
+    Ctrl+D                 Toggle favorite
+    Ctrl+P                 Toggle preview
+
 ${C_BOLD}EXAMPLES:${C_RESET}
     wallpaper-picker pick
     wallpaper-picker gui
     wallpaper-picker random
+    wallpaper-picker smart-random
+    wallpaper-picker time-based
     wallpaper-picker slideshow 60
+    wallpaper-picker pywal
+    wallpaper-picker restore
 
 ${C_BOLD}KEYBINDINGS (Hyprland):${C_RESET}
     bind = SUPER, W, exec, wallpaper-picker pick
     bind = SUPER SHIFT, W, exec, wallpaper-picker gui
+    bind = SUPER ALT, W, exec, wallpaper-picker random
+    bind = SUPER CTRL, W, exec, wallpaper-picker smart-random
 
 ${C_BOLD}CONFIG:${C_RESET} ${CONFIG_FILE}
 
@@ -1286,6 +1448,9 @@ main() {
         disable-startup) cmd_disable_startup ;;
         install-gui)    cmd_install_gui ;;
         preview)        cmd_preview "${1:-}" ;;
+        pywal)          cmd_pywal ;;
+        restore)        restore_wallpaper ;;
+        set-monitor)    cmd_set_monitor "$2" "$3" ;;
         set)            set_wallpaper_from_stdin ;;
         help|"")        cmd_help ;;
         *)              echo -e "${ERROR}Unknown command:${C_RESET} $command"; cmd_help; exit 1 ;;

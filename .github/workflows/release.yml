@@ -2,41 +2,146 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 jobs:
   release:
-    name: Create Release
+    name: Create Release v${{ github.event.inputs.version_type || 'patch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Get Version
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
         with:
-          files: |
-            src/wallpaper-picker
-            src/wallpaper-picker-gui
-            install.sh
-            PKGBUILD
-            wallpaper-picker.install
-          generate_release_notes: true
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Compute new version
+        id: version
+        run: |
+          CURRENT="2.1.0"
+          BUMP="${{ github.event.inputs.version_type || 'patch' }}"
+          
+          IFS='.' read -ra VER <<< "$CURRENT"
+          MAJOR="${VER[0]}"
+          MINOR="${VER[1]}"
+          PATCH="${VER[2]}"
+          
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "bump=$BUMP" >> $GITHUB_OUTPUT
+      
+      - name: Update version in scripts
+        run: |
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          
+          # Update TUI script
+          sed -i "s/SCRIPT_VERSION=\"[^\"]*\"/SCRIPT_VERSION=\"$NEW_VERSION\"/" src/wallpaper-picker
+          sed -i "s/pkgver=.*/pkgver=$NEW_VERSION/" PKGBUILD
+          
+          # Update GUI script
+          sed -i "s/__version__ = \"[^\"]*\"/__version__ = \"$NEW_VERSION\"/" src/wallpaper-picker-gui 2>/dev/null || true
+      
+      - name: Update CHANGELOG
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          NEW_VERSION="${{ steps.version.outputs.version }}"
+          
+          # Create changelog entry
+          cat > /tmp/changelog_entry.txt << 'CHANGELOG'
+          
+          ## [VERSION] - DATE
+          
+          ### Added
+          - Feature additions from this release
+          
+          ### Fixed
+          - Bug fixes from this release
+          
+          ### Changed
+          - Changes from this release
+          
+          CHANGELOG
+          
+          sed -i "s/VERSION/$NEW_VERSION/" /tmp/changelog_entry.txt
+          sed -i "s/DATE/$DATE/" /tmp/changelog_entry.txt
+          
+          # Prepend to changelog
+          cat /tmp/changelog_entry.txt CHANGELOG.md > /tmp/new_changelog.md
+          mv /tmp/new_changelog.md CHANGELOG.md
+      
+      - name: Create commit and tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "chore(release): Bump version to ${{ steps.version.outputs.version }}"
+          git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+      
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          tags: true
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.version.outputs.version }}"
+          release_name: "v${{ steps.version.outputs.version }}"
+          body: |
+            ## What's New in v${{ steps.version.outputs.version }}
+            
+            ### Installation
+            
+            ```bash
+            # AUR (recommended)
+            yay -S wallpaper-picker
+            
+            # Or use the installer
+            curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/install.sh | bash
+            ```
+            
+            ### Quick Start
+            
+            ```bash
+            wallpaper-picker pick         # Interactive picker
+            wallpaper-picker gui         # GTK4 GUI
+            wallpaper-picker random      # Random wallpaper
+            ```
+            
+            See [CHANGELOG.md](https://github.com/5h4d0wn1k/wallpaper-picker/blob/main/CHANGELOG.md) for full details.
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  aur-update:
-    name: Update AUR
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - uses: actions/checkout@v4
       
-      - name: Update AUR
+      - name: Generate Release Notes
         run: |
-          echo "AUR package update would be triggered here"
-          echo "In production, use: https://github.com/marketplace/actions/aur-package"
+          echo "Release v${{ steps.version.outputs.version }} created successfully!"
+          echo "Tag pushed to remote"
+          echo ""
+          echo "Next steps for AUR:"
+          echo "1. Update PKGBUILD version on AUR"
+          echo "2. Run: makepkg --printsrcinfo > .SRCINFO"
+          echo "3. git add -A && git commit && git push"
