@@ -289,6 +289,27 @@ EOF
 # Monitor functions
 # =============================================================================
 
+get_monitor_info() {
+    local monitor="$1"
+    local info=""
+    
+    if is_command hyprctl; then
+        info=$(hyprctl monitors -j 2>/dev/null)
+    fi
+    
+    if [[ -n "$info" ]]; then
+        echo "$info" | jq -r ".[] | select(.name == \"$monitor\")" 2>/dev/null
+    fi
+}
+
+get_all_monitors_json() {
+    if is_command hyprctl; then
+        hyprctl monitors -j 2>/dev/null || echo "[]"
+    else
+        echo "[]"
+    fi
+}
+
 get_active_monitors() {
     if is_command hyprctl; then
         hyprctl monitors 2>/dev/null | grep -E "^Monitor" | awk '{print $2}' || echo "default"
@@ -317,6 +338,326 @@ resolve_monitor() {
     else
         get_primary_monitor
     fi
+}
+
+cmd_monitors() {
+    echo -e "${C_BOLD}Available Monitors:${C_RESET}"
+    echo ""
+    
+    local json
+    json=$(get_all_monitors_json)
+    
+    if [[ "$json" == "[]" || -z "$json" ]]; then
+        echo "  • default (no hyprctl)"
+        return
+    fi
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    echo -e "${C_CYAN}Found ${monitor_count} monitor(s):${C_RESET}"
+    echo ""
+    
+    local i=0
+    while [[ $i -lt $monitor_count ]]; do
+        local name width height x y scale
+        name=$(echo "$json" | jq -r ".[$i].name")
+        width=$(echo "$json" | jq -r ".[$i].width")
+        height=$(echo "$json" | jq -r ".[$i].height")
+        x=$(echo "$json" | jq -r ".[$i].x")
+        y=$(echo "$json" | jq -r ".[$i].y")
+        scale=$(echo "$json" | jq -r ".[$i].scale // 1")
+        
+        local scale_pct=$((scale * 100))
+        
+        echo -e "  ${C_GREEN}${name}${C_RESET}"
+        echo "    Resolution: ${width}x${height}"
+        echo "    Position:  (${x}, ${y})"
+        echo "    Scale:     ${scale_pct}%"
+        echo ""
+        
+        ((i++))
+    done
+    
+    local primary
+    primary=$(get_primary_monitor)
+    echo "  Active: ${primary}"
+}
+
+cmd_monitor_detailed() {
+    local json
+    json=$(get_all_monitors_json)
+    
+    if [[ "$json" == "[]" || -z "$json" ]]; then
+        echo -e "${ERROR}No monitors found or hyprctl not available${C_RESET}"
+        return 1
+    fi
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    echo -e "${C_BOLD}Multi-Monitor Configuration:${C_RESET}"
+    echo ""
+    echo "Total monitors: ${monitor_count}"
+    echo ""
+    
+    local i=0
+    local total_width=0
+    local total_height=0
+    local min_y=0
+    local max_y=0
+    
+    while [[ $i -lt $monitor_count ]]; do
+        local width height x y
+        width=$(echo "$json" | jq -r ".[$i].width")
+        height=$(echo "$json" | jq -r ".[$i].height")
+        x=$(echo "$json" | jq -r ".[$i].x")
+        y=$(echo "$json" | jq -r ".[$i].y")
+        
+        if [[ $x -lt 0 ]]; then total_width=$((total_width - x)); fi
+        total_width=$((total_width + width))
+        
+        local bottom_y=$((y + height))
+        if [[ $i -eq 0 ]]; then
+            min_y=$y
+            max_y=$bottom_y
+        else
+            [[ $y -lt $min_y ]] && min_y=$y
+            [[ $bottom_y -gt $max_y ]] && max_y=$bottom_y
+        fi
+        
+        total_height=$((max_y - min_y))
+        
+        ((i++))
+    done
+    
+    echo "Virtual canvas size: ${total_width}x${total_height}"
+    echo ""
+    
+    if [[ $monitor_count -gt 1 ]]; then
+        echo -e "${C_YELLOW}Multi-monitor setup detected!${C_RESET}"
+        echo "  You have ${monitor_count} monitors."
+        echo ""
+        echo "Spanning Options:"
+        echo "  1. Same wallpaper on all monitors (scaled individually)"
+        echo "  2. Single wallpaper spanning all monitors (seamless)"
+        echo "  3. Different wallpaper per monitor"
+        echo ""
+    fi
+}
+
+# =============================================================================
+# Multi-Monitor Wallpaper Spanning
+# =============================================================================
+
+kill_all_wallpapers() {
+    pkill -f "mpvpaper" 2>/dev/null || true
+    sleep 0.3
+}
+
+set_wallpaper_all() {
+    local video="$1"
+    local mode="${2:-scaled}"
+    
+    if [[ ! -f "$video" ]]; then
+        echo -e "${ERROR}File not found: ${video}${C_RESET}"
+        return 1
+    fi
+    
+    local json
+    json=$(get_all_monitors_json)
+    
+    if [[ "$json" == "[]" || -z "$json" ]]; then
+        echo -e "${WARNING}No monitors detected, setting on default${C_RESET}"
+        set_wallpaper "$video"
+        return
+    fi
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    case "$mode" in
+        scaled|same)
+            echo -e "${INFO}Setting same wallpaper on all ${monitor_count} monitors (scaled)${C_RESET}"
+            set_wallpaper_all_scaled "$video" "$json"
+            ;;
+        span|spanning|seamless)
+            echo -e "${INFO}Setting spanning wallpaper across all monitors${C_RESET}"
+            set_wallpaper_spanning "$video" "$json"
+            ;;
+        individual|diff)
+            echo -e "${INFO}Individual wallpaper mode - use set-monitor for each${C_RESET}"
+            set_wallpaper "$video"
+            ;;
+        *)
+            set_wallpaper "$video"
+            ;;
+    esac
+}
+
+set_wallpaper_all_scaled() {
+    local video="$1"
+    local json="$2"
+    
+    local audio_opts=""
+    [[ "${ENABLE_AUDIO}" != "yes" ]] && audio_opts="no-audio"
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    local i=0
+    
+    kill_all_wallpapers
+    
+    while [[ $i -lt $monitor_count ]]; do
+        local name
+        name=$(echo "$json" | jq -r ".[$i].name")
+        
+        mpvpaper -fp -o "loop-file=${LOOP_MODE} ${audio_opts} video-latency-hacks=yes" \
+            "$name" "$video" &>/dev/null &
+        
+        echo -e "  ${SUCCESS}${name}: $(basename "$video")${C_RESET}"
+        
+        ((i++))
+    done
+    
+    CURRENT_WALLPAPER="$video"
+    save_state
+    add_to_history "$video"
+}
+
+set_wallpaper_spanning() {
+    local video="$1"
+    local json="$2"
+    
+    local ext="${video##*.}"
+    ext="${ext,,}"
+    
+    if [[ "$ext" == "mp4" || "$ext" == "webm" || "$ext" == "mkv" ]]; then
+        echo -e "${INFO}Video spanning is complex. Setting scaled on all monitors instead.${C_RESET}"
+        set_wallpaper_all_scaled "$video" "$json"
+        return
+    fi
+    
+    local cache_dir="${CACHE_DIR}/spanning"
+    mkdir -p "$cache_dir"
+    
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    local i=0
+    while [[ $i -lt $monitor_count ]]; do
+        local name width height x y
+        name=$(echo "$json" | jq -r ".[$i].name")
+        width=$(echo "$json" | jq -r ".[$i].width")
+        height=$(echo "$json" | jq -r ".[$i].height")
+        x=$(echo "$json" | jq -r ".[$i].x")
+        y=$(echo "$json" | jq -r ".[$i].y")
+        
+        local cropped_path="${cache_dir}/${name}.jpg"
+        
+        crop_for_monitor "$video" "$x" "$y" "$width" "$height" "$cropped_path"
+        
+        echo -e "  ${INFO}${name}: ${width}x${height} at (${x}, ${y})${C_RESET}"
+        
+        ((i++))
+    done
+    
+    set_scaled_images "$json" "$cache_dir"
+    
+    CURRENT_WALLPAPER="$video"
+    save_state
+    add_to_history "$video"
+}
+
+crop_for_monitor() {
+    local source="$1"
+    local monitor_x="$2"
+    local monitor_y="$3"
+    local monitor_w="$4"
+    local monitor_h="$5"
+    local output="$6"
+    
+    local src_w src_h
+    src_w=$(identify -format "%w" "$source" 2>/dev/null || echo "0")
+    src_h=$(identify -format "%h" "$source" 2>/dev/null || echo "0")
+    
+    if [[ "$src_w" == "0" || "$src_h" == "0" ]]; then
+        cp "$source" "$output"
+        return
+    fi
+    
+    local aspect_src=$((src_w * 100 / src_h))
+    local aspect_dst=$((monitor_w * 100 / monitor_h))
+    
+    if [[ $aspect_src -eq $aspect_dst ]]; then
+        convert "$source" -resize "${monitor_w}x${monitor_h}!" "$output" 2>/dev/null || cp "$source" "$output"
+    else
+        local crop_w crop_h
+        if [[ $aspect_src -gt $aspect_dst ]]; then
+            crop_h=$((src_w * monitor_h / monitor_w))
+            crop_w=$src_w
+        else
+            crop_w=$((src_h * monitor_w / monitor_h))
+            crop_h=$src_h
+        fi
+        
+        convert "$source" \
+            -resize "${crop_w}x${crop_h}" \
+            -gravity center \
+            -crop "${monitor_w}x${monitor_h}+0+0" \
+            "$output" 2>/dev/null || cp "$source" "$output"
+    fi
+}
+
+set_scaled_images() {
+    local json="$1"
+    local cache_dir="$2"
+    
+    kill_all_wallpapers
+    
+    local i=0
+    local monitor_count
+    monitor_count=$(echo "$json" | jq length)
+    
+    while [[ $i -lt $monitor_count ]]; do
+        local name
+        name=$(echo "$json" | jq -r ".[$i].name")
+        
+        local img="${cache_dir}/${name}.jpg"
+        
+        if [[ -f "$img" ]]; then
+            swww-img "$img" --outputs "$name" 2>/dev/null || \
+            hyprpaper "$name" "$img" 2>/dev/null || \
+            gsettings set org.gnome.desktop.background picture-uri "file://$img" 2>/dev/null || \
+            echo -e "${WARNING}No wallpaper setter available for $name${C_RESET}"
+        fi
+        
+        ((i++))
+    done
+}
+
+cmd_span() {
+    local video="$1"
+    local mode="${2:-scaled}"
+    
+    if [[ -z "$video" ]]; then
+        echo -e "${ERROR}Usage: wallpaper-picker span <video> [scaled|span]${C_RESET}"
+        return 1
+    fi
+    
+    set_wallpaper_all "$video" "$mode"
+}
+
+cmd_all_monitors() {
+    local video="$1"
+    local mode="${2:-scaled}"
+    
+    if [[ -z "$video" ]]; then
+        echo -e "${ERROR}Usage: wallpaper-picker all <video> [scaled|span]${C_RESET}"
+        return 1
+    fi
+    
+    set_wallpaper_all "$video" "$mode"
 }
 
 # =============================================================================
@@ -1378,12 +1719,24 @@ ${C_BOLD}TUI SHORTCUTS (in fzf picker):${C_RESET}
     Ctrl+D                 Toggle favorite
     Ctrl+P                 Toggle preview
 
+${C_BOLD}MULTI-MONITOR COMMANDS:${C_RESET}
+    ${C_GREEN}span${C_RESET} <FILE> [MODE]     Set wallpaper spanning all monitors
+    ${C_GREEN}all${C_RESET} <FILE> [MODE]      Same wallpaper on all monitors
+    ${C_GREEN}monitors${C_RESET}                Show detailed monitor info
+
+${C_BOLD}MULTI-MONITOR MODES:${C_RESET}
+    scaled  (default)       Same wallpaper, scaled for each monitor
+    span                    Single wallpaper spanning all monitors
+
 ${C_BOLD}EXAMPLES:${C_RESET}
     wallpaper-picker pick
     wallpaper-picker gui
     wallpaper-picker random
     wallpaper-picker smart-random
     wallpaper-picker time-based
+    wallpaper-picker span wallpaper.jpg scaled
+    wallpaper-picker span wallpaper.jpg span
+    wallpaper-picker monitors
     wallpaper-picker slideshow 60
     wallpaper-picker pywal
     wallpaper-picker restore
@@ -1393,6 +1746,7 @@ ${C_BOLD}KEYBINDINGS (Hyprland):${C_RESET}
     bind = SUPER SHIFT, W, exec, wallpaper-picker gui
     bind = SUPER ALT, W, exec, wallpaper-picker random
     bind = SUPER CTRL, W, exec, wallpaper-picker smart-random
+    bind = SUPER SHIFT, S, exec, wallpaper-picker span "" span
 
 ${C_BOLD}CONFIG:${C_RESET} ${CONFIG_FILE}
 
@@ -1442,6 +1796,9 @@ main() {
         toggle-fav)     cmd_toggle_fav "${1:-}" ;;
         config)         cmd_config ;;
         monitors)       cmd_monitors ;;
+        monitor-info)   cmd_monitor_detailed ;;
+        span)           cmd_span "$2" "${3:-scaled}" ;;
+        all)            cmd_all_monitors "$2" "${3:-scaled}" ;;
         status)         cmd_status ;;
         doctor)         cmd_doctor ;;
         enable-startup) cmd_enable_startup ;;
