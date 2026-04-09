@@ -88,6 +88,8 @@ LOOP_MODE="inf"
 # Slideshow configuration
 SLIDESHOW_INTERVAL=30
 SLIDESHOW_SHUFFLE="no"
+TIME_BASED_MODE="no"
+TIME_BASED_FOLDERS="morning:06-12 afternoon:12-18 evening:18-22 night:22-06"
 
 # UI configuration
 THUMBNAIL_ENABLED="yes"
@@ -228,12 +230,11 @@ create_default_config() {
 # =============================================================================
 # Wallpaper Picker Configuration
 # =============================================================================
-# Version: 2.0.0
-# Documentation: https://github.com/shadowarch/wallpaper-picker
+# Version: 2.1.0
+# Documentation: https://github.com/5h4d0wn1k/wallpaper-picker
 # =============================================================================
 
 # Monitor Configuration
-# Leave empty for auto-detection
 MONITOR=""
 AUTO_DETECT_MONITOR="yes"
 
@@ -247,6 +248,17 @@ LOOP_MODE="inf"
 # Slideshow Configuration
 SLIDESHOW_INTERVAL=30
 SLIDESHOW_SHUFFLE="no"
+
+# Time-Based Configuration
+# Set wallpapers based on time of day
+# Add folders like: morning/, afternoon/, evening/, night/
+TIME_BASED_MODE="no"
+TIME_BASED_FOLDERS="morning:06-12 afternoon:12-18 evening:18-22 night:22-06"
+
+# Smart Random
+# Avoid recently used wallpapers
+SMART_RANDOM="yes"
+RECENT_HISTORY_SIZE=10
 
 # UI Configuration
 THUMBNAIL_ENABLED="yes"
@@ -498,6 +510,150 @@ toggle_favorite() {
 }
 
 # =============================================================================
+# Video preview generation
+# =============================================================================
+
+generate_preview() {
+    local video="$1"
+    local max_width="${2:-80}"
+    local max_height="${3:-30}"
+    
+    if ! is_command ffmpeg; then
+        echo "ffmpeg not available for preview"
+        return 1
+    fi
+    
+    local temp_thumb
+    temp_thumb=$(mktemp --suffix=.jpg)
+    
+    ffmpeg -y -ss 00:00:02 -i "$video" \
+        -vframes 1 -q:v 5 \
+        -vf "scale=${max_width}:${max_height}:force_original_aspect_ratio=decrease" \
+        "$temp_thumb" 2>/dev/null
+    
+    if [[ -f "$temp_thumb" ]]; then
+        cat "$temp_thumb" | base64 | fold -w ${max_width}
+        rm -f "$temp_thumb"
+    fi
+}
+
+preview_file() {
+    local file="$1"
+    local width="${COLUMNS:-80}"
+    local height=$(( $(tput lines 2>/dev/null || echo 20) - 5 ))
+    
+    if [[ ! -f "$file" ]]; then
+        echo "File not found"
+        return
+    fi
+    
+    local ext="${file##*.}"
+    ext="${ext,,}"
+    
+    case "$ext" in
+        mp4|webm|mkv|avi|mov|m4v)
+            if is_command ffmpeg; then
+                generate_preview "$file" "$((width / 2))" "$((height / 2))"
+            else
+                echo "[ Video: $ext ]"
+            fi
+            ;;
+        png|jpg|jpeg|gif|bmp)
+            if is_command chafa 2>/dev/null; then
+                chafa -s "$((width/2))x$((height/2))" "$file" 2>/dev/null || echo "$file"
+            elif is_command img2txt 2>/dev/null; then
+                img2txt -W "$((width/2))" "$file" 2>/dev/null || echo "$file"
+            else
+                echo "$file"
+            fi
+            ;;
+        *)
+            echo "$file"
+            ;;
+    esac
+}
+
+# =============================================================================
+# Smart random (avoid recent)
+# =============================================================================
+
+get_smart_random() {
+    local videos=()
+    mapfile -t videos < <(get_all_videos)
+    
+    if [[ ${#videos[@]} -eq 0 ]]; then
+        echo ""
+        return 1
+    fi
+    
+    local recent=()
+    if [[ -f "${HISTORY_FILE}" ]]; then
+        mapfile -t recent < <(tail -n 10 "${HISTORY_FILE}" | cut -d'|' -f2)
+    fi
+    
+    local candidates=()
+    for video in "${videos[@]}"; do
+        local is_recent=0
+        for r in "${recent[@]}"; do
+            if [[ "$video" == "$r" ]]; then
+                is_recent=1
+                break
+            fi
+        done
+        if [[ $is_recent -eq 0 ]]; then
+            candidates+=("$video")
+        fi
+    done
+    
+    if [[ ${#candidates[@]} -gt 0 ]]; then
+        local idx=$((RANDOM % ${#candidates[@]}))
+        echo "${candidates[$idx]}"
+    else
+        echo "${videos[$((RANDOM % ${#videos[@]}))]}"
+    fi
+}
+
+# =============================================================================
+# Time-based wallpaper
+# =============================================================================
+
+get_time_of_day() {
+    local hour
+    hour=$(date +%H)
+    
+    if [[ $hour -ge 6 && $hour -lt 12 ]]; then
+        echo "morning"
+    elif [[ $hour -ge 12 && $hour -lt 18 ]]; then
+        echo "afternoon"
+    elif [[ $hour -ge 18 && $hour -lt 22 ]]; then
+        echo "evening"
+    else
+        echo "night"
+    fi
+}
+
+get_time_based_video() {
+    local tod
+    tod=$(get_time_of_day)
+    local videos=()
+    mapfile -t videos < <(get_all_videos)
+    
+    local candidates=()
+    for video in "${videos[@]}"; do
+        if [[ "${video,,}" == *"${tod}"* ]]; then
+            candidates+=("$video")
+        fi
+    done
+    
+    if [[ ${#candidates[@]} -gt 0 ]]; then
+        echo "${candidates[$((RANDOM % ${#candidates[@]}))]}"
+        return 0
+    fi
+    
+    return 1
+}
+
+# =============================================================================
 # Interactive picker (fzf)
 # =============================================================================
 
@@ -517,40 +673,40 @@ interactive_picker() {
     
     echo -e "${C_CYAN}Loading ${#videos[@]} wallpapers...${C_RESET}"
     
-    # Use a temp file for fzf to avoid issues with special chars
     local temp_file
     temp_file=$(mktemp)
+    
     printf '%s\n' "${videos[@]}" > "$temp_file"
     
-    # FZF options
+    local header="Enter: Set | Ctrl+R: Random | Ctrl+S: Smart Random | Ctrl+D: Toggle ★ | Ctrl+P: Preview | Esc: Exit"
+    
     local fzf_opts=(
         --prompt="🎨 Wallpaper > "
-        --height=60%
+        --height=70%
         --reverse
         --border=rounded
-        --header='Enter: Set | Ctrl+R: Random | Esc: Exit'
+        --header="$header"
         --bind="ctrl-r:execute-silent(wallpaper-picker random)"
+        --bind="ctrl-s:execute-silent(wallpaper-picker smart-random)"
+        --bind="ctrl-d:execute-silent(bash -c 'f=$(cat /tmp/wp_selected 2>/dev/null); [[ -n $f ]] && wallpaper-picker toggle-fav \"$f\"')"
+        --bind="ctrl-p:toggle-preview"
+        --bind="change:top+reload(cat {})+unbind(change)"
         --info=hidden
         --margin=1
-        --color='bg+:#1a1a2e,fg+:#eeeedd,hl:#51a4ff:bold,fg:#6272a4,hl+:#51a4ff'
+        --color='bg+:#1a1a2e,fg+:#eeeedd,hl:#51a4ff:bold,fg:#6272a4,hl+:#51a4ff,preview-bg:#16213e'
     )
     
-    # Preview window
-    if [[ "${PREVIEW_ENABLED}" == "yes" ]]; then
+    if [[ "${PREVIEW_ENABLED}" == "yes" ]] && is_command ffmpeg; then
         fzf_opts+=(
-            --preview-window=right:50%:wrap
-            --preview-window=hidden
-            --bind="ctrl-p:toggle-preview"
-            --bind="enter:execute-silent(bash -c 'wallpaper-picker set \"{}\"')+accept"
-            --header-lines=0
+            --preview-window=right:50%:hidden:wrap
+            --preview="bash -c 'wallpaper-picker preview {}'"
         )
     fi
     
-    # Run fzf
     local selected
-    selected=$(fzf "${fzf_opts[@]}" < "$temp_file")
+    selected=$(fzf "${fzf_opts[@]}" < "$temp_file" 2>/dev/null)
     
-    rm -f "$temp_file"
+    rm -f "$temp_file" /tmp/wp_selected
     
     if [[ -n "$selected" ]]; then
         set_wallpaper "$selected"
@@ -558,6 +714,10 @@ interactive_picker() {
         echo -e "${INFO}Selection cancelled"
         return 1
     fi
+}
+
+cmd_preview() {
+    preview_file "${1:-}"
 }
 
 set_wallpaper_from_stdin() {
@@ -743,6 +903,34 @@ cmd_random() {
     else
         echo -e "${ERROR}No wallpapers found!${C_RESET}"
         return 1
+    fi
+}
+
+cmd_smart_random() {
+    local video
+    video=$(get_smart_random)
+    
+    if [[ -n "$video" ]]; then
+        set_wallpaper "$video"
+        echo -e "${INFO}(Smart: avoiding recent wallpapers)${C_RESET}"
+    else
+        echo -e "${ERROR}No wallpapers found!${C_RESET}"
+        return 1
+    fi
+}
+
+cmd_time_based() {
+    local tod
+    tod=$(get_time_of_day)
+    echo -e "${INFO}Current time of day: ${C_BOLD}${tod}${C_RESET}"
+    
+    local video
+    if video=$(get_time_based_video); then
+        set_wallpaper "$video"
+        echo -e "${SUCCESS}Set ${tod} wallpaper${C_RESET}"
+    else
+        echo -e "${WARNING}No ${tod} wallpaper found, using random${C_RESET}"
+        cmd_random
     fi
 }
 
@@ -1006,6 +1194,8 @@ ${C_BOLD}COMMANDS:${C_RESET}
     ${C_GREEN}gui${C_RESET}                    Launch GTK4 GUI picker
     ${C_GREEN}browse${C_RESET}                 Browse any video file
     ${C_GREEN}random${C_RESET}                Set random wallpaper
+    ${C_GREEN}smart-random${C_RESET}           Random (avoid recent)
+    ${C_GREEN}time-based${C_RESET}             Wallpaper by time of day
     ${C_GREEN}slideshow${C_RESET} [SEC]       Start slideshow mode
     ${C_GREEN}stop${C_RESET}                  Stop current wallpaper
     ${C_GREEN}current${C_RESET}               Show current wallpaper
@@ -1016,6 +1206,7 @@ ${C_BOLD}COMMANDS:${C_RESET}
     ${C_GREEN}remove-dir${C_RESET} <PATH>      Remove watch directory
     ${C_GREEN}watch-dirs${C_RESET}             List watch directories
     ${C_GREEN}toggle-fav${C_RESET}            Toggle favorite status
+    ${C_GREEN}preview${C_RESET} <FILE>        Preview wallpaper
     ${C_GREEN}config${C_RESET}                Edit configuration
     ${C_GREEN}monitors${C_RESET}              List monitors
     ${C_GREEN}status${C_RESET}                 Detailed status
@@ -1075,6 +1266,8 @@ main() {
         gui)            cmd_gui ;;
         browse)         cmd_browse ;;
         random)         cmd_random ;;
+        smart-random)   cmd_smart_random ;;
+        time-based)     cmd_time_based ;;
         slideshow)      cmd_slideshow "${1:-}" ;;
         stop)           cmd_stop ;;
         current)        cmd_current ;;
@@ -1092,6 +1285,7 @@ main() {
         enable-startup) cmd_enable_startup ;;
         disable-startup) cmd_disable_startup ;;
         install-gui)    cmd_install_gui ;;
+        preview)        cmd_preview "${1:-}" ;;
         set)            set_wallpaper_from_stdin ;;
         help|"")        cmd_help ;;
         *)              echo -e "${ERROR}Unknown command:${C_RESET} $command"; cmd_help; exit 1 ;;

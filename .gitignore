@@ -19,3 +19,9 @@ Thumbs.db
 # Local config
 .config/wallpaper-picker/config.local
 .cache/wallpaper-picker/*.log
+*.pyc
+__pycache__/
+*.pyo
+*.egg-info/
+dist/
+build/
