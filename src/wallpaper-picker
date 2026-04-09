@@ -407,11 +407,11 @@ get_all_videos() {
     for dir in "${WATCH_DIRS[@]}"; do
         [[ -d "$dir" ]] || continue
         for ext in mp4 webm mkv avi mov m4v; do
-            for video in "$dir"/*."${ext}" "$dir"/*."${ext^^}" 2>/dev/null; do
+            for video in "$dir"/*."${ext}" "$dir"/*."${ext^^}"; do
                 [[ -f "$video" ]] && add_video "$video"
             done
         done
-    done
+    done 2>/dev/null
     
     # Print unique videos
     printf '%s\n' "${videos[@]}"
