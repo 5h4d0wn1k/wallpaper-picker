@@ -1253,21 +1253,21 @@ interactive_picker() {
     
     local temp_file
     temp_file=$(mktemp)
+    trap "rm -f '$temp_file'" EXIT
     
     printf '%s\n' "${videos[@]}" > "$temp_file"
     
-    local header="Enter: Set | Ctrl+R: Random | Ctrl+S: Smart Random | Ctrl+D: Toggle ★ | Ctrl+P: Preview | Esc: Exit"
+    local header="Enter: Set | Ctrl+R: Random | Ctrl+S: Smart Random | Ctrl+F: Toggle ★ | Esc: Exit"
     
     local fzf_opts=(
-        --prompt="🎨 Wallpaper > "
+        --prompt="Wallpaper > "
         --height=70%
         --reverse
         --border=rounded
         --header="$header"
         --bind="ctrl-r:execute-silent(wallpaper-picker random)"
         --bind="ctrl-s:execute-silent(wallpaper-picker smart-random)"
-        --bind="ctrl-d:execute-silent(bash -c 'f=$(cat /tmp/wp_selected 2>/dev/null); [[ -n $f ]] && wallpaper-picker toggle-fav \"$f\"')"
-        --bind="ctrl-p:toggle-preview"
+        --bind="ctrl-f:execute-silent(echo {} > '$temp_file.wf')+reload(cat '$temp_file')"
         --bind="change:top+reload(cat {})+unbind(change)"
         --info=hidden
         --margin=1
@@ -1283,8 +1283,6 @@ interactive_picker() {
     
     local selected
     selected=$(fzf "${fzf_opts[@]}" < "$temp_file" 2>/dev/null)
-    
-    rm -f "$temp_file" /tmp/wp_selected
     
     if [[ -n "$selected" ]]; then
         set_wallpaper "$selected"
@@ -1866,7 +1864,7 @@ main() {
     
     # Parse command
     local command="${1:-}"
-    shift 2>/dev/null || true
+    shift
     
     case "$command" in
         pick)           cmd_pick ;;
@@ -1888,8 +1886,8 @@ main() {
         config)         cmd_config ;;
         monitors)       cmd_monitors ;;
         monitor-info)   cmd_monitor_detailed ;;
-        span)           cmd_span "$2" "${3:-scaled}" ;;
-        all)            cmd_all_monitors "$2" "${3:-scaled}" ;;
+        span)           cmd_span "${1:-}" "${2:-scaled}" ;;
+        all)            cmd_all_monitors "${1:-}" "${2:-scaled}" ;;
         status)         cmd_status ;;
         doctor)         cmd_doctor ;;
         enable-startup) cmd_enable_startup ;;
@@ -1898,7 +1896,7 @@ main() {
         preview)        cmd_preview "${1:-}" ;;
         pywal)          cmd_pywal ;;
         restore)        restore_wallpaper ;;
-        set-monitor)    cmd_set_monitor "$2" "$3" ;;
+        set-monitor)    cmd_set_monitor "${1:-}" "${2:-}" ;;
         set)            set_wallpaper_from_stdin ;;
         help|"")        cmd_help ;;
         *)              echo -e "${ERROR}Unknown command:${C_RESET} $command"; cmd_help; exit 1 ;;

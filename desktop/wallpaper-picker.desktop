@@ -1,38 +1,49 @@
 [Desktop Entry]
 Name=Wallpaper Picker
 GenericName=Video Wallpaper Manager
-Comment=A sleek, feature-rich video wallpaper manager for Arch Linux/Hyprland
+Comment=A sleek, feature-rich video wallpaper manager for Hyprland/Wayland
 Exec=wallpaper-picker gui %u
 Icon=wallpaper-picker
 Terminal=false
 Type=Application
-Categories=Utility;DesktopSettings;GTK;
-Keywords=wallpaper;video;hyprland;wayland;desktop;background;
-MimeType=video/mp4;video/webm;video/x-matroska;
+Categories=Utility;DesktopSettings;GTK;Settings;
+Keywords=wallpaper;video;hyprland;wayland;desktop;background;dynamic;
+MimeType=video/mp4;video/webm;video/x-matroska;image/png;image/jpeg;
 StartupNotify=true
 StartupWMClass=wallpaper-picker-gui
-Actions=gui;tui;random;slideshow;
+Actions=gui;tui;random;slideshow;smart-random;
 
 [Desktop Action gui]
 Name=Open GUI
+Name[en_US]=Open GUI
 Exec=wallpaper-picker gui
 Icon=wallpaper-picker
 Terminal=false
 
 [Desktop Action tui]
 Name=Open TUI
+Name[en_US]=Open TUI (Terminal)
 Exec=wallpaper-picker pick
 Icon=wallpaper-picker
 Terminal=true
 
 [Desktop Action random]
 Name=Random Wallpaper
+Name[en_US]=Random Wallpaper
 Exec=wallpaper-picker random
 Icon=wallpaper-picker
 Terminal=true
 
 [Desktop Action slideshow]
 Name=Start Slideshow
+Name[en_US]=Start Slideshow
 Exec=wallpaper-picker slideshow
+Icon=wallpaper-picker
+Terminal=true
+
+[Desktop Action smart-random]
+Name=Smart Random
+Name[en_US]=Smart Random (Avoid Recent)
+Exec=wallpaper-picker smart-random
 Icon=wallpaper-picker
 Terminal=true

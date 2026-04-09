@@ -44,7 +44,7 @@
 ### One-Line Install (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/install.sh | bash
+curl -fsSL https://git.io/wallpaper-picker | bash
 ```
 
 ### AUR (yay/paru)

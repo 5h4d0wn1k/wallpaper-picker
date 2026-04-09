@@ -1,319 +1,241 @@
 #!/usr/bin/env bash
 #
-# =============================================================================
-# ███████╗██╗   ██╗██████╗ ██████╗  █████╗ ██████╗ 
-# ██╔════╝██║   ██║██╔══██╗██╔══██╗██╔══██╗██╔══██╗
-# ███████╗██║   ██║██████╔╝██████╔╝███████║██████╔╝
-# ╚════██║██║   ██║██╔══██╗██╔══██╗██╔══██║██╔══██╗
-# ███████║╚██████╔╝██████╔╝██████╔╝██║  ██║██████╔╝
-# ╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚═════╝ 
-# =============================================================================
+# ╔═══════════════════════════════════════════════════════════════════╗
+# ║                    Wallpaper Picker Installer                     ║
+# ║         The Ultimate Video Wallpaper Manager for Hyprland         ║
+# ╚═══════════════════════════════════════════════════════════════════╝
 #
-# Quick Install Script for wallpaper-picker
-# Supports Arch Linux, Manjaro, EndeavourOS, and other Arch derivatives
+# One-liner installation:
+#   curl -fsSL https://git.io/wallpaper-picker | bash
 #
-# Usage:
-#   curl -fsSL https://raw.githubusercontent.com/5h4d0wn1k/wallpaper-picker/main/install.sh | bash
+# Or with options:
+#   curl -fsSL https://git.io/wallpaper-picker | bash -s -- --dir /path/to/wallpapers
 #
-# =============================================================================
-
 set -euo pipefail
 
-# Configuration
-readonly REPO="5h4d0wn1k/wallpaper-picker"
-readonly RAW_URL="https://raw.githubusercontent.com/${REPO}/main"
-readonly INSTALL_DIR="${HOME}/.local"
-readonly BIN_DIR="${INSTALL_DIR}/bin"
-readonly CONFIG_DIR="${HOME}/.config/wallpaper-picker"
-readonly SHARE_DIR="${INSTALL_DIR}/share/wallpaper-picker"
+VERSION="2.2.0"
+REPO="5h4d0wn1k/wallpaper-picker"
+INSTALL_DIR="${HOME}/.local"
+BIN_DIR="${INSTALL_DIR}/bin"
+CONFIG_DIR="${HOME}/.config/wallpaper-picker"
+DATA_DIR="${HOME}/.local/share/wallpaper-picker"
 
-# Colors
-readonly RED='\033[0;31m'
-readonly GREEN='\033[0;32m'
-readonly YELLOW='\033[1;33m'
-readonly BLUE='\033[0;34m'
-readonly CYAN='\033[0;36m'
-readonly NC='\033[0m'
-readonly BOLD='\033[1m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
 
-# Emoji
-readonly CHECK="${GREEN}✓${NC}"
-readonly CROSS="${RED}✗${NC}"
-readonly INFO="${CYAN}○${NC}"
-readonly WARN="${YELLOW}!${NC}"
-
-# Functions
+err() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 info() { echo -e "${BLUE}[INFO]${NC} $*"; }
-success() { echo -e "${GREEN}[OK]${NC} $*"; }
+ok() { echo -e "${GREEN}[OK]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
-# Check if running on Arch Linux
-check_arch() {
-    if [[ ! -f /etc/arch-release ]] && ! command -v pacman &>/dev/null; then
-        warn "This script is designed for Arch Linux-based distributions."
-        warn "It may work on other distributions but is not officially supported."
-        return 1
-    fi
-    return 0
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dir) WALLPAPER_DIR="$2"; shift 2 ;;
+            --audio) ENABLE_AUDIO="yes"; shift ;;
+            --help|-h) usage; exit 0 ;;
+            *) shift ;;
+        esac
+    done
 }
 
-# Check dependencies
-check_dependencies() {
+usage() {
+    cat <<EOF
+${BOLD}Wallpaper Picker Installer v${VERSION}${NC}
+
+${BOLD}Usage:${NC}
+    curl -fsSL https://git.io/wallpaper-picker | bash
+    curl -fsSL https://git.io/wallpaper-picker | bash -s -- [options]
+
+${BOLD}Options:${NC}
+    --dir PATH     Set wallpaper directory (default: ~/Videos/wallpapers)
+    --audio        Enable audio playback
+    --help, -h     Show this help message
+
+${BOLD}Examples:${NC}
+    # Default install
+    curl -fsSL https://git.io/wallpaper-picker | bash
+
+    # Custom wallpaper directory
+    curl -fsSL https://git.io/wallpaper-picker | bash -s -- --dir ~/Pictures/Wallpapers
+
+    # Enable audio
+    curl -fsSL https://git.io/wallpaper-picker | bash -s -- --audio
+EOF
+}
+
+check_requirements() {
     local missing=()
     
-    # Required
-    command -v pacman &>/dev/null || missing+=("pacman")
-    
-    # Optional (will install)
-    command -v git &>/dev/null || missing+=("git")
+    for cmd in curl git; do
+        command -v "$cmd" &>/dev/null || missing+=("$cmd")
+    done
     
     if [[ ${#missing[@]} -gt 0 ]]; then
-        error "Missing required tools: ${missing[*]}"
-        return 1
+        err "Missing required commands: ${missing[*]}"
+        err "Install them with: sudo pacman -S ${missing[*]}"
+        exit 1
     fi
-    return 0
 }
 
-# Install system dependencies
 install_dependencies() {
-    info "Installing system dependencies..."
+    info "Installing dependencies..."
     
-    local packages=(
-        "fzf"           # Fuzzy finder for TUI
-        "mpv"           # Media player
-        "jq"            # JSON processing
-        "ffmpeg"        # Video thumbnails
-        "libnotify"     # Notifications
-    )
+    local packages=(mpv fzf jq libnotify)
     
-    # Check for mpvpaper in AUR
-    if ! pacman -Qs "^mpvpaper$" &>/dev/null && ! command -v mpvpaper &>/dev/null; then
-        packages+=("mpvpaper")
-        warn "mpvpaper is in AUR and will be installed via yay/paru"
+    if ! command -v mpvpaper &>/dev/null; then
+        packages+=(mpvpaper)
     fi
     
-    # Try pacman first
-    if sudo pacman -Sy --noconfirm "${packages[@]}" 2>/dev/null; then
-        success "System packages installed"
-    else
-        warn "Some packages need AUR helper. Trying yay/paru..."
-        install_aur_helper
-    fi
+    for pkg in "${packages[@]}"; do
+        if pacman -Q "$pkg" &>/dev/null || command -v "$pkg" &>/dev/null; then
+            continue
+        fi
+        
+        info "Installing $pkg..."
+        if command -v yay &>/dev/null; then
+            yay -S --noconfirm "$pkg" 2>/dev/null || sudo pacman -S --noconfirm "$pkg"
+        elif command -v paru &>/dev/null; then
+            paru -S --noconfirm "$pkg" 2>/dev/null || sudo pacman -S --noconfirm "$pkg"
+        else
+            sudo pacman -S --noconfirm "$pkg" 2>/dev/null || {
+                warn "$pkg needs manual installation"
+            }
+        fi
+    done
+    
+    ok "Dependencies installed"
 }
 
-# Install AUR helper
-install_aur_helper() {
-    if command -v yay &>/dev/null || command -v paru &>/dev/null; then
-        local aur_helper
-        command -v yay &>/dev/null && aur_helper="yay" || aur_helper="paru"
-        info "Using $aur_helper to install AUR packages..."
-        sudo "$aur_helper" -Sy --noconfirm mpvpaper fzf mpv jq ffmpeg libnotify
-    else
-        info "Installing yay..."
-        cd /tmp
-        git clone https://aur.archlinux.org/yay.git
-        cd yay
-        makepkg -si --noconfirm
-        cd ~
-        yay -Sy --noconfirm mpvpaper fzf mpv jq ffmpeg libnotify
+download_files() {
+    info "Downloading wallpaper-picker..."
+    
+    local temp_dir
+    temp_dir=$(mktemp -d)
+    trap "rm -rf '$temp_dir'" EXIT
+    
+    if ! git clone --depth 1 --branch "v${VERSION}" "https://github.com/${REPO}" "$temp_dir" 2>/dev/null; then
+        err "Failed to download wallpaper-picker"
+        exit 1
     fi
-}
-
-# Download file from GitHub
-download_file() {
-    local file="$1"
-    local dest="$2"
     
-    info "Downloading $file..."
-    if curl -fsSL "${RAW_URL}/${file}" -o "$dest"; then
-        success "Downloaded $file"
-        return 0
-    else
-        error "Failed to download $file"
-        return 1
-    fi
-}
-
-# Install wallpaper-picker
-install_wallpaper_picker() {
-    info "Installing wallpaper-picker..."
+    mkdir -p "$BIN_DIR" "$CONFIG_DIR" "${HOME}/.local/share/applications" "${HOME}/.local/share/icons"
     
-    # Create directories
-    mkdir -p "$BIN_DIR"
-    mkdir -p "$CONFIG_DIR"
-    mkdir -p "${HOME}/.local/share/applications"
-    mkdir -p "${HOME}/.local/share/icons"
+    install -Dm755 "$temp_dir/src/wallpaper-picker" "${BIN_DIR}/wallpaper-picker"
+    install -Dm755 "$temp_dir/src/wallpaper-picker-gui" "${BIN_DIR}/wallpaper-picker-gui"
+    install -Dm644 "$temp_dir/desktop/wallpaper-picker.desktop" "${HOME}/.local/share/applications/wallpaper-picker.desktop"
+    install -Dm644 "$temp_dir/icons/wallpaper-picker.svg" "${HOME}/.local/share/icons/wallpaper-picker.svg"
     
-    # Download main script
-    download_file "src/wallpaper-picker" "${BIN_DIR}/wallpaper-picker"
-    chmod +x "${BIN_DIR}/wallpaper-picker"
-    
-    # Download GUI script
-    download_file "src/wallpaper-picker-gui" "${BIN_DIR}/wallpaper-picker-gui"
-    chmod +x "${BIN_DIR}/wallpaper-picker-gui"
-    
-    # Download desktop entry
-    download_file "desktop/wallpaper-picker.desktop" "${HOME}/.local/share/applications/wallpaper-picker.desktop"
-    
-    # Download icon
-    download_file "icons/wallpaper-picker.svg" "${HOME}/.local/share/icons/wallpaper-picker.svg"
-    
-    # Create default config if not exists
     if [[ ! -f "${CONFIG_DIR}/config" ]]; then
-        cat > "${CONFIG_DIR}/config" <<'EOF'
-# Wallpaper Picker Configuration
+        cat > "${CONFIG_DIR}/config" <<EOF
 MONITOR=""
 AUTO_DETECT_MONITOR="yes"
-DEFAULT_WALLPAPER_DIR="$HOME/Videos/wallpapers"
-ENABLE_AUDIO="no"
+DEFAULT_WALLPAPER_DIR="${WALLPAPER_DIR}"
+ENABLE_AUDIO="${ENABLE_AUDIO}"
 LOOP_MODE="inf"
 SLIDESHOW_INTERVAL=30
 SLIDESHOW_SHUFFLE="no"
+TIME_BASED_MODE="no"
+SMART_RANDOM="yes"
+RECENT_HISTORY_SIZE=10
+PYWAL_ENABLED="no"
+PYWAL_BACKEND="theme"
+AUTO_RESTORE="yes"
+AUTO_RELOAD="yes"
 THUMBNAIL_ENABLED="yes"
 CACHE_THUMBNAILS="yes"
 NOTIFICATIONS_ENABLED="yes"
 PREVIEW_ENABLED="yes"
 PREVIEW_TIMEOUT=3
+STARTUP_MODE="manual"
 EOF
-        success "Created default configuration"
     fi
     
-    # Update desktop database
-    update-desktop-database "${HOME}/.local/share/applications/" 2>/dev/null || true
+    ok "Files installed"
 }
 
-# Verify installation
-verify_installation() {
-    info "Verifying installation..."
-    
-    local issues=0
-    
-    # Check binary
-    if [[ -x "${BIN_DIR}/wallpaper-picker" ]]; then
-        success "wallpaper-picker installed"
-    else
-        error "wallpaper-picker not found or not executable"
-        ((issues++))
-    fi
-    
-    # Check GUI binary
-    if [[ -x "${BIN_DIR}/wallpaper-picker-gui" ]]; then
-        success "wallpaper-picker-gui installed"
-    else
-        warn "wallpaper-picker-gui not found (optional, requires GTK4)"
-        ((issues++))
-    fi
-    
-    # Check desktop entry
-    if [[ -f "${HOME}/.local/share/applications/wallpaper-picker.desktop" ]]; then
-        success "Desktop entry installed"
-    else
-        warn "Desktop entry not found"
-        ((issues++))
-    fi
-    
-    # Test wallpaper-picker
-    if "${BIN_DIR}/wallpaper-picker" --version &>/dev/null; then
-        success "wallpaper-picker works"
-    else
-        error "wallpaper-picker test failed"
-        ((issues++))
-    fi
-    
-    return $issues
-}
-
-# Add to PATH
-add_to_path() {
-    local bashrc="${HOME}/.bashrc"
-    local zshrc="${HOME}/.zshrc"
-    local path_line='export PATH="$HOME/.local/bin:$PATH"'
-    
-    # Check if already in bashrc
-    if [[ -f "$bashrc" ]] && grep -q "\.local/bin" "$bashrc"; then
-        info "PATH already configured in .bashrc"
-    else
-        echo "" >> "$bashrc"
-        echo "# Add ~/.local/bin to PATH" >> "$bashrc"
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$bashrc"
-        success "Added to .bashrc"
-    fi
-    
-    # Check if already in zshrc
-    if [[ -f "$zshrc" ]] && grep -q "\.local/bin" "$zshrc"; then
-        info "PATH already configured in .zshrc"
-    else
-        echo "" >> "$zshrc"
-        echo "# Add ~/.local/bin to PATH" >> "$zshrc"
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$zshrc"
-        success "Added to .zshrc"
+setup_path() {
+    if [[ ":$PATH:" != *":${HOME}/.local/bin:"* ]]; then
+        for rc in .bashrc .zshrc .profile; do
+            if [[ -f "${HOME}/${rc}" ]]; then
+                if ! grep -q '\.local/bin' "${HOME}/${rc}"; then
+                    echo '' >> "${HOME}/${rc}"
+                    echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/${rc}"
+                fi
+            fi
+        done
+        warn "Added ~/.local/bin to PATH. Restart your shell or run: source ~/.bashrc"
     fi
 }
 
-# Print success message
+setup_autostart() {
+    local autostart_dir="${HOME}/.config/autostart"
+    mkdir -p "$autostart_dir"
+    
+    cat > "${autostart_dir}/wallpaper-picker.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Wallpaper Picker
+Exec=wallpaper-picker restore
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+    
+    ok "Autostart configured"
+}
+
 print_success() {
     echo ""
-    echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║         Wallpaper Picker Installation Complete!        ║${NC}"
-    echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║         Wallpaper Picker v${VERSION} Installed Successfully!        ║${NC}"
+    echo -e "${BOLD}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CHECK} ${GREEN}wallpaper-picker installed successfully${NC}"
+    echo -e "  ${GREEN}✓${NC} wallpaper-picker     - TUI interface"
+    echo -e "  ${GREEN}✓${NC} wallpaper-picker-gui - GTK4 GUI"
+    echo -e "  ${GREEN}✓${NC} App menu integration"
     echo ""
-    echo -e "  ${BOLD}Quick Usage:${NC}"
-    echo -e "    ${CYAN}wallpaper-picker pick${NC}       - Interactive TUI picker"
-    echo -e "    ${CYAN}wallpaper-picker gui${NC}        - GTK4 GUI picker"
-    echo -e "    ${CYAN}wallpaper-picker random${NC}     - Random wallpaper"
-    echo -e "    ${CYAN}wallpaper-picker slideshow${NC}  - Slideshow mode"
+    echo -e "${BOLD}Quick Start:${NC}"
+    echo -e "  ${CYAN}wallpaper-picker pick${NC}       - Interactive TUI picker"
+    echo -e "  ${CYAN}wallpaper-picker gui${NC}        - GTK4 GUI picker"
+    echo -e "  ${CYAN}wallpaper-picker random${NC}     - Random wallpaper"
+    echo -e "  ${CYAN}wallpaper-picker help${NC}       - Full documentation"
     echo ""
-    echo -e "  ${BOLD}Menu Integration:${NC}"
-    echo -e "    Search for '${BOLD}Wallpaper Picker${NC}' in your app menu"
-    echo -e "    Right-click for quick actions (TUI/GUI/Random/Slideshow)"
+    echo -e "${BOLD}Hyprland Keybindings:${NC}"
+    echo -e '  bind = SUPER, W, exec, wallpaper-picker pick'
     echo ""
-    echo -e "  ${BOLD}Hyprland Integration:${NC}"
-    echo -e "    Add to ${HOME}/.config/hypr/hyprland.conf:"
-    echo -e "    ${DIM}bind = SUPER, W, exec, wallpaper-picker pick${NC}"
-    echo ""
-    echo -e "  ${BOLD}Documentation:${NC}"
-    echo -e "    ${CYAN}wallpaper-picker --help${NC}    - Full help"
-    echo -e "    ${CYAN}wallpaper-picker doctor${NC}     - Diagnose issues"
-    echo ""
-    echo -e "  ${BOLD}AUR Package:${NC}"
-    echo -e "    Also available via: ${CYAN}yay -S wallpaper-picker${NC}"
+    echo -e "${BOLD}AUR:${NC} yay -S wallpaper-picker"
     echo ""
 }
 
-# Main
+WALLPAPER_DIR="${HOME}/Videos/wallpapers"
+ENABLE_AUDIO="no"
+
 main() {
     echo ""
-    echo -e "${BOLD}╔══════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BOLD}║           Wallpaper Picker Installer v2.0.0             ║${NC}"
-    echo -e "${BOLD}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${BOLD}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}║              Wallpaper Picker Installer v${VERSION}                 ║${NC}"
+    echo -e "${BOLD}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    # Check for Arch Linux
-    check_arch || true
+    parse_args "$@"
+    check_requirements
+    install_dependencies
+    download_files
+    setup_path
+    setup_autostart
     
-    # Check dependencies
-    check_dependencies || exit 1
-    
-    # Install dependencies
-    install_dependencies || warn "Some dependencies may need manual installation"
-    
-    # Install wallpaper-picker
-    install_wallpaper_picker || { error "Installation failed"; exit 1; }
-    
-    # Add to PATH
-    add_to_path
-    
-    # Verify installation
-    if verify_installation; then
-        print_success
-    else
-        warn "Installation completed with some issues"
-        echo "Please check the output above for details"
+    if [[ ! -d "${WALLPAPER_DIR}" ]]; then
+        mkdir -p "${WALLPAPER_DIR}"
+        info "Created wallpaper directory: ${WALLPAPER_DIR}"
     fi
+    
+    print_success
 }
 
-# Run
 main "$@"
